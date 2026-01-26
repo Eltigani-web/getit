@@ -316,7 +316,7 @@ Final Verification
 
 ---
 
-- [ ] 4. Add Chunk-Level Retry in FileDownloader
+- [x] 4. Add Chunk-Level Retry in FileDownloader
 
   **What to do**:
   - **RED**: Add tests to `tests/unit/core/test_downloader.py`

@@ -298,7 +298,33 @@ class FileDownloader:
         ctr = Counter.new(128, initial_value=(iv_int << 64) + initial_counter)
         return AES.new(key, AES.MODE_CTR, counter=ctr)
 
-    async def _download_chunks(
+    async     def _cleanup_on_error(self, task: DownloadTask, temp_path: Path) -> None:
+        """Clean up temporary partial file on error.
+
+        Deletes the .part file and sets task to FAILED.
+        Called from both disk full errors and cancellation handling.
+        """
+        # Remove partial file if it exists
+        if temp_path.exists():
+            temp_path.unlink()
+
+        # Mark task as failed with error details
+        task.progress.status = DownloadStatus.FAILED
+        if task.progress.error:
+            task.progress.error = f"Failed to clean up: {task.progress.error}"
+        else:
+            task.progress.error = "Download failed during cleanup"
+
+    def _handle_cancellation(self, task: DownloadTask, temp_path: Path) -> bool:
+        """Handle download cancellation."""
+        if temp_path.exists() and not self.enable_resume:
+            temp_path.unlink()
+            await self._cleanup_on_error(task, temp_path, "Download cancelled")
+            return True
+
+        return False
+
+    def _download_chunks(
         self,
         task: DownloadTask,
         response: Any,
@@ -331,7 +357,15 @@ class FileDownloader:
             if decryptor:
                 chunk = decryptor.decrypt(chunk)
 
-            await file_handle.write(chunk)
+            try:
+                await file_handle.write(chunk)
+            except OSError as e:
+                self._cleanup_on_error(task, temp_path, f"Disk write failed: {e}")
+                if e.errno == 28:
+                    task.progress.status = DownloadStatus.FAILED
+                    task.progress.error = "Disk full: No space left on device"
+                else:
+                    raise
 
             chunk_len = len(chunk)
             task.progress.downloaded += chunk_len
