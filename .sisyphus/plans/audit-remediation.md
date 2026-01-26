@@ -87,8 +87,7 @@ Each TODO follows RED-GREEN-REFACTOR:
    - Command: `uv run pytest tests/unit/[module]/test_[feature].py -v`
    - Expected: PASS
 3. **REFACTOR**: Clean up while keeping green
-   - Command: `uv run pytest tests/ -v`
-   - Expected: All tests PASS (no regressions)
+   - [x] 2. Fix TOCTOU Race Condition in File Naming
 
 ### Test Organization
 ```

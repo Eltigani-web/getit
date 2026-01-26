@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Optional, Callable, Coroutine
 
 import aiohttp
 from aiolimiter import AsyncLimiter
@@ -44,6 +44,39 @@ class HTTPClient:
     async def __aexit__(self, *args: Any) -> None:
         await self.close()
 
+    async def _with_retry(
+        self,
+        coro: Coroutine[Any, Any],
+        is_retryable_exception: Callable[[Any], bool],
+    ) -> Any:
+        """Execute coroutine with retry logic and exponential backoff.
+
+        Retry on exceptions that match is_retryable_exception callback.
+        Use exponential backoff: 2**attempt seconds
+        Respect max_retries setting
+
+        Args:
+            coro: Coroutine to retry
+            is_retryable_exception: Function to check if exception should be retried
+
+        Returns:
+            Result from coro or raises exception after all retries exhausted
+        """
+        for attempt in range(self._max_retries + 1):
+            try:
+                result = await coro()
+                if attempt < self._max_retries:
+                    return result
+                return result
+            except Exception as e:
+                if not is_retryable_exception(e):
+                    raise
+                if attempt < self._max_retries:
+                    backoff = 2**attempt
+                    await asyncio.sleep(backoff)
+                    continue
+                raise Exception(f"Request failed after {self._max_retries} retries: {e}")
+
     async def start(self) -> None:
         if self._session is None or self._session.closed:
             connector = aiohttp.TCPConnector(
@@ -78,8 +111,10 @@ class HTTPClient:
         params: Optional[dict[str, Any]] = None,
         cookies: Optional[dict[str, str]] = None,
     ) -> aiohttp.ClientResponse:
-        async with self._limiter:
-            return await self.session.get(url, headers=headers, params=params, cookies=cookies)
+        return await self._with_retry(
+            self.session.get(url, headers=headers, params=params, cookies=cookies),
+            lambda e: isinstance(e, (aiohttp.ClientError, asyncio.TimeoutError)),
+        )
 
     async def post(
         self,
@@ -90,10 +125,12 @@ class HTTPClient:
         cookies: Optional[dict[str, str]] = None,
         params: Optional[dict[str, Any]] = None,
     ) -> aiohttp.ClientResponse:
-        async with self._limiter:
-            return await self.session.post(
+        return await self._with_retry(
+            self.session.post(
                 url, data=data, json=json, headers=headers, cookies=cookies, params=params
-            )
+            ),
+            lambda e: isinstance(e, (aiohttp.ClientError, asyncio.TimeoutError)),
+        )
 
     async def get_json(
         self,
@@ -102,23 +139,22 @@ class HTTPClient:
         params: Optional[dict[str, Any]] = None,
         cookies: Optional[dict[str, str]] = None,
     ) -> dict[str, Any]:
-        async with self._limiter:
-            async with self.session.get(
-                url, headers=headers, params=params, cookies=cookies
-            ) as resp:
-                resp.raise_for_status()
-                return await resp.json()
+        return await self._with_retry(
+            self.session.get(url, headers=headers, params=params, cookies=cookies).json(),
+            lambda e: isinstance(e, (aiohttp.ClientError, asyncio.TimeoutError)),
+        )
 
     async def get_text(
         self,
         url: str,
         headers: Optional[dict[str, str]] = None,
         params: Optional[dict[str, Any]] = None,
+        cookies: Optional[dict[str, str]] = None,
     ) -> str:
-        async with self._limiter:
-            async with self.session.get(url, headers=headers, params=params) as resp:
-                resp.raise_for_status()
-                return await resp.text()
+        return await self._with_retry(
+            self.session.get(url, headers=headers, params=params, cookies=cookies).text(),
+            lambda e: isinstance(e, (aiohttp.ClientError, asyncio.TimeoutError)),
+        )
 
     async def download_stream(
         self,
