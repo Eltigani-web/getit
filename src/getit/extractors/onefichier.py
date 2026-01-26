@@ -131,8 +131,12 @@ class OneFichierExtractor(BaseExtractor):
             wait_time = int(wait_match.group(1))
             if "minute" in html.lower()[wait_match.start() : wait_match.end() + 20]:
                 wait_time *= 60
-            if 0 < wait_time < 300:
+            if 0 < wait_time < 60:
                 await asyncio.sleep(wait_time + 1)
+                logger.info(f"Waiting {wait_time}s as required by 1Fichier")
+            else:
+                logger.warning(f"Wait time too long ({wait_time}s), skipping")
+                raise ExtractorError(f"Wait time too long ({wait_time}s), try again later")
 
         direct_link = None
         link_tag = soup.find("a", {"class": "ok"})

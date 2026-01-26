@@ -373,7 +373,7 @@ After completing tasks 1-4:
 
 ### TIER 2: HIGH Priority (7 issues)
 
-- [ ] 5. Handle Disk Full Error During Download
+- [x] 5. Handle Disk Full Error During Download
 
   **What to do**:
   - **RED**: Add test to `tests/unit/core/test_downloader.py`
