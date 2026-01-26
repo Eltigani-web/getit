@@ -8,13 +8,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Optional
 
     from getit.utils.sanitize import sanitize_filename
-from getit.core.downloader import (
-    DownloadProgress,
-    DownloadStatus,
-    DownloadTask,
-    FileDownloader,
-    ProgressCallback,
-)
+from getit.core.downloader import DownloadProgress, DownloadStatus, DownloadTask, FileDownloader, ProgressCallback
 )
 from getit.extractors.base import BaseExtractor, FileInfo
 from getit.extractors.gofile import GoFileExtractor
@@ -132,14 +126,19 @@ class DownloadManager:
         if file_info.parent_folder:
             target_dir = target_dir / file_info.parent_folder
 
+        # Create output path with atomic file creation to prevent TOCTOU race condition
         output_path = target_dir / sanitize_filename(file_info.filename)
 
-        counter = 1
-        original_stem = output_path.stem
-        original_suffix = output_path.suffix
-        while output_path.exists():
-            output_path = target_dir / f"{original_stem}_{counter}{original_suffix}"
-            counter += 1
+        # Use tempfile.mkstemp() to guarantee unique filename atomically
+        # The random suffix ensures uniqueness even with concurrent tasks
+        import tempfile
+        fd, temp_path = tempfile.mkstemp(
+            prefix=f"{output_path.stem}_",
+            suffix=output_path.suffix,
+            dir=target_dir
+        )
+        os.close(fd)
+        output_path = Path(temp_path)
 
         task = DownloadTask(
             file_info=file_info,
