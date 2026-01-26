@@ -409,7 +409,7 @@ After completing tasks 1-4:
 
 ---
 
-- [ ] 6. Fix 1Fichier Blocking Wait with Timeout/Callback
+- [x] 6. Fix 1Fichier Blocking Wait with Timeout/Callback
 
   **What to do**:
   - **RED**: Create `tests/unit/extractors/test_onefichier.py`

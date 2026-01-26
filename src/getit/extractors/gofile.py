@@ -208,10 +208,9 @@ class GoFileExtractor(BaseExtractor):
         for item in children:
             if item.get("type") == "file":
                 files.append(self._parse_file(item, content.get("name")))
-            elif item.get("type") == "folder" and current_depth < max_depth:
-                sub_files = await self._extract_recursive(
-                    f"https://gofile.io/d/{item['id']}",
-                    password,
+            if item.get("type") == "folder" and current_depth < max_depth:
+                sub_files = await self._extract_files(
+                    list(item.get("children", {}).values()),
                     max_depth,
                     current_depth + 1,
                 )

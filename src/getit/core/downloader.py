@@ -230,10 +230,6 @@ class FileDownloader:
                 task.progress.error = f"Chunk download timed out after {task.max_retries} retries: {e}"
                 return None
         return None
-        except TimeoutError:
-            task.progress.status = DownloadStatus.FAILED
-            task.progress.error = f"Chunk download timed out after {self.chunk_timeout}s"
-            return None
 
     def _update_speed_smoothed(
         self, task: DownloadTask, bytes_downloaded: int, time_diff: float
