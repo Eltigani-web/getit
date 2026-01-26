@@ -449,7 +449,7 @@ After completing tasks 1-4:
 
 ---
 
-- [ ] 7. Add Concurrent Folder Extraction
+- [x] 7. Add Concurrent Folder Extraction
 
   **What to do**:
   - **RED**: Create `tests/unit/extractors/test_gofile.py`
