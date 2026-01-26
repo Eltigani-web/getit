@@ -203,12 +203,24 @@ class FileDownloader:
         task: DownloadTask,
         chunk_iter: Any,
     ) -> Optional[bytes]:
-        """Get next chunk with timeout. Returns None for end or error."""
-        try:
-            async with asyncio.timeout(self.chunk_timeout):
+        """Get next chunk with retry logic.
+
+        Wraps chunk iteration with retry to handle transient network failures.
+        """
+        for attempt in range(task.max_retries + 1):
+            try:
                 return await chunk_iter.__anext__()
-        except StopAsyncIteration:
-            return None
+            except StopAsyncIteration:
+                return None
+            except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+                if attempt < task.max_retries:
+                    backoff = 2 ** attempt
+                    await asyncio.sleep(backoff)
+                    continue
+                task.progress.status = DownloadStatus.FAILED
+                task.progress.error = f"Chunk download timed out after {task.max_retries} retries: {e}"
+                return None
+        return None
         except TimeoutError:
             task.progress.status = DownloadStatus.FAILED
             task.progress.error = f"Chunk download timed out after {self.chunk_timeout}s"

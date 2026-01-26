@@ -272,7 +272,7 @@ Final Verification
 
 ---
 
-- [ ] 3. Implement HTTPClient Retry Logic
+- [x] 3. Implement HTTPClient Retry Logic
 
   **What to do**:
   - **RED**: Create `tests/unit/core/test_http_client.py`
