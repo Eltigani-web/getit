@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, ClassVar, Optional
+from typing import TYPE_CHECKING, ClassVar
 from urllib.parse import urlparse
 
 if TYPE_CHECKING:
@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 
 
 class ExtractorError(Exception):
-    def __init__(self, message: str, status_code: Optional[int] = None):
+    def __init__(self, message: str, status_code: int | None = None):
         self.message = message
         self.status_code = status_code
         super().__init__(message)
@@ -73,7 +73,7 @@ def validate_url_scheme(url: str) -> None:
     if parsed.scheme.lower() not in ALLOWED_SCHEMES:
         raise InvalidURLError(f"Invalid URL scheme: {parsed.scheme!r}. Only http/https allowed.")
     if not parsed.netloc:
-        raise InvalidURLError(f"Invalid URL: missing host")
+        raise InvalidURLError("Invalid URL: missing host")
 
 
 @dataclass
@@ -81,17 +81,17 @@ class FileInfo:
     url: str
     filename: str
     size: int = 0
-    direct_url: Optional[str] = None
+    direct_url: str | None = None
     headers: dict[str, str] = field(default_factory=dict)
     cookies: dict[str, str] = field(default_factory=dict)
     password_protected: bool = False
-    checksum: Optional[str] = None
-    checksum_type: Optional[str] = None
-    parent_folder: Optional[str] = None
+    checksum: str | None = None
+    checksum_type: str | None = None
+    parent_folder: str | None = None
     extractor_name: str = ""
     # Mega.nz encryption support
-    encryption_key: Optional[bytes] = None
-    encryption_iv: Optional[bytes] = None
+    encryption_key: bytes | None = None
+    encryption_iv: bytes | None = None
     encrypted: bool = False
 
 
@@ -106,7 +106,7 @@ class FolderInfo:
 class BaseExtractor(ABC):
     SUPPORTED_DOMAINS: ClassVar[tuple[str, ...]] = ()
     EXTRACTOR_NAME: ClassVar[str] = "base"
-    URL_PATTERN: ClassVar[Optional[re.Pattern[str]]] = None
+    URL_PATTERN: ClassVar[re.Pattern[str] | None] = None
 
     def __init__(self, http_client: HTTPClient):
         self.http = http_client
@@ -126,7 +126,7 @@ class BaseExtractor(ABC):
         return False
 
     @classmethod
-    def extract_id(cls, url: str) -> Optional[str]:
+    def extract_id(cls, url: str) -> str | None:
         if cls.URL_PATTERN:
             match = cls.URL_PATTERN.match(url)
             if match:
@@ -137,10 +137,8 @@ class BaseExtractor(ABC):
         return parts[-1] if parts else None
 
     @abstractmethod
-    async def extract(self, url: str, password: Optional[str] = None) -> list[FileInfo]:
+    async def extract(self, url: str, password: str | None = None) -> list[FileInfo]:
         pass
 
-    async def extract_folder(
-        self, url: str, password: Optional[str] = None
-    ) -> Optional[FolderInfo]:
+    async def extract_folder(self, url: str, password: str | None = None) -> FolderInfo | None:
         return None

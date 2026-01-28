@@ -5,10 +5,13 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable, Optional
+from typing import TYPE_CHECKING
 
-    from getit.utils.sanitize import sanitize_filename
-from getit.core.downloader import DownloadProgress, DownloadStatus, DownloadTask, FileDownloader, ProgressCallback
+from getit.core.downloader import (
+    DownloadStatus,
+    DownloadTask,
+    FileDownloader,
+    ProgressCallback,
 )
 from getit.extractors.base import BaseExtractor, FileInfo
 from getit.extractors.gofile import GoFileExtractor
@@ -17,6 +20,7 @@ from getit.extractors.mega import MegaExtractor
 from getit.extractors.onefichier import OneFichierExtractor
 from getit.extractors.pixeldrain import PixelDrainExtractor
 from getit.utils.http import HTTPClient
+from getit.utils.sanitize import sanitize_filename
 
 if TYPE_CHECKING:
     pass
@@ -28,7 +32,7 @@ class DownloadResult:
 
     task: DownloadTask
     success: bool
-    error: Optional[str] = None
+    error: str | None = None
 
     @classmethod
     def succeeded(cls, task: DownloadTask) -> DownloadResult:
@@ -58,7 +62,7 @@ class DownloadManager:
         max_concurrent: int = 3,
         chunk_size: int = 1024 * 1024,
         enable_resume: bool = True,
-        speed_limit: Optional[int] = None,
+        speed_limit: int | None = None,
         max_retries: int = 3,
         requests_per_second: float = 10.0,
     ):
@@ -70,10 +74,10 @@ class DownloadManager:
         self.max_retries = max_retries
         self.requests_per_second = requests_per_second
 
-        self._http: Optional[HTTPClient] = None
+        self._http: HTTPClient | None = None
         self._tasks: list[DownloadTask] = []
         self._active_downloads: dict[str, asyncio.Task] = {}
-        self._semaphore: Optional[asyncio.Semaphore] = None
+        self._semaphore: asyncio.Semaphore | None = None
         self._extractors: dict[str, BaseExtractor] = {}
 
     async def __aenter__(self) -> DownloadManager:
@@ -104,13 +108,13 @@ class DownloadManager:
             extractor = extractor_cls(self._http)
             self._extractors[extractor_cls.EXTRACTOR_NAME] = extractor
 
-    def get_extractor(self, url: str) -> Optional[BaseExtractor]:
+    def get_extractor(self, url: str) -> BaseExtractor | None:
         for extractor in self._extractors.values():
             if extractor.can_handle(url):
                 return extractor
         return None
 
-    async def extract_files(self, url: str, password: Optional[str] = None) -> list[FileInfo]:
+    async def extract_files(self, url: str, password: str | None = None) -> list[FileInfo]:
         extractor = self.get_extractor(url)
         if not extractor:
             raise ValueError(f"No extractor found for URL: {url}")
@@ -119,26 +123,25 @@ class DownloadManager:
     def create_task(
         self,
         file_info: FileInfo,
-        output_dir: Optional[Path] = None,
+        output_dir: Path | None = None,
     ) -> DownloadTask:
         target_dir = output_dir or self.output_dir
 
         if file_info.parent_folder:
-            target_dir = target_dir / file_info.parent_folder
+            target_dir = target_dir / sanitize_filename(file_info.parent_folder)
 
-        # Create output path with atomic file creation to prevent TOCTOU race condition
-        output_path = target_dir / sanitize_filename(file_info.filename)
+        target_dir.mkdir(parents=True, exist_ok=True)
 
-        # Use tempfile.mkstemp() to guarantee unique filename atomically
-        # The random suffix ensures uniqueness even with concurrent tasks
-        import tempfile
-        fd, temp_path = tempfile.mkstemp(
-            prefix=f"{output_path.stem}_",
-            suffix=output_path.suffix,
-            dir=target_dir
-        )
-        os.close(fd)
-        output_path = Path(temp_path)
+        safe_filename = sanitize_filename(file_info.filename)
+        output_path = target_dir / safe_filename
+
+        if output_path.exists() and not self.enable_resume:
+            stem = output_path.stem
+            suffix = output_path.suffix
+            counter = 1
+            while output_path.exists():
+                output_path = target_dir / f"{stem}_{counter}{suffix}"
+                counter += 1
 
         task = DownloadTask(
             file_info=file_info,
@@ -153,10 +156,14 @@ class DownloadManager:
     async def download_task(
         self,
         task: DownloadTask,
-        on_progress: Optional[ProgressCallback] = None,
+        on_progress: ProgressCallback | None,
     ) -> DownloadResult:
         if not self._http or not self._semaphore:
             raise RuntimeError("DownloadManager not started")
+
+        print(
+            f"[DEBUG] download_task called: task_id={task.task_id}, output_path={task.output_path}"
+        )
 
         async with self._semaphore:
             downloader = FileDownloader(
@@ -166,29 +173,22 @@ class DownloadManager:
                 speed_limit=self.speed_limit,
             )
 
-            for attempt in range(task.max_retries + 1):
-                task.retries = attempt
-                success = await downloader.download(task, on_progress)
+            success = await downloader.download(task, on_progress)
 
-                if success:
-                    return DownloadResult.succeeded(task)
+            if success:
+                return DownloadResult.succeeded(task)
 
-                if task.progress.status == DownloadStatus.CANCELLED:
-                    return DownloadResult.cancelled(task)
+            if task.progress.status == DownloadStatus.CANCELLED:
+                return DownloadResult.cancelled(task)
 
-                if attempt < task.max_retries:
-                    await asyncio.sleep(2**attempt)
-                    task.progress.status = DownloadStatus.PENDING
-                    task.progress.error = None
-
-            return DownloadResult.failed(task, task.progress.error or "Max retries exceeded")
+            return DownloadResult.failed(task, task.progress.error or "Download failed")
 
     async def download_url(
         self,
         url: str,
-        password: Optional[str] = None,
-        output_dir: Optional[Path] = None,
-        on_progress: Optional[ProgressCallback] = None,
+        password: str | None = None,
+        output_dir: Path | None = None,
+        on_progress: ProgressCallback | None = None,
     ) -> list[DownloadResult]:
         files = await self.extract_files(url, password)
         results: list[DownloadResult] = []
@@ -203,9 +203,9 @@ class DownloadManager:
     async def download_urls(
         self,
         urls: list[str],
-        password: Optional[str] = None,
-        output_dir: Optional[Path] = None,
-        on_progress: Optional[ProgressCallback] = None,
+        password: str | None = None,
+        output_dir: Path | None = None,
+        on_progress: ProgressCallback | None = None,
     ) -> list[DownloadResult]:
         all_results: list[DownloadResult] = []
 
@@ -228,7 +228,7 @@ class DownloadManager:
     def tasks(self) -> list[DownloadTask]:
         return self._tasks.copy()
 
-    def get_task(self, task_id: str) -> Optional[DownloadTask]:
+    def get_task(self, task_id: str) -> DownloadTask | None:
         for task in self._tasks:
             if task.task_id == task_id:
                 return task

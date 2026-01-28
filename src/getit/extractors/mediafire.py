@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import base64
 import re
-from typing import TYPE_CHECKING, ClassVar, Optional
+from typing import TYPE_CHECKING, ClassVar
 
 from bs4 import BeautifulSoup
 
@@ -40,7 +40,7 @@ class MediaFireExtractor(BaseExtractor):
         return bool(cls.URL_PATTERN.match(url) or cls.FOLDER_PATTERN.match(url))
 
     @classmethod
-    def extract_id(cls, url: str) -> Optional[str]:
+    def extract_id(cls, url: str) -> str | None:
         match = cls.URL_PATTERN.match(url) or cls.FOLDER_PATTERN.match(url)
         if match:
             return match.group("id")
@@ -50,7 +50,7 @@ class MediaFireExtractor(BaseExtractor):
     def _is_folder(cls, url: str) -> bool:
         return bool(cls.FOLDER_PATTERN.match(url))
 
-    async def _get_file_info_api(self, quick_key: str) -> Optional[dict]:
+    async def _get_file_info_api(self, quick_key: str) -> dict | None:
         try:
             url = f"{self.API_URL}/file/get_info.php"
             params = {"quick_key": quick_key, "response_format": "json"}
@@ -61,7 +61,7 @@ class MediaFireExtractor(BaseExtractor):
             pass
         return None
 
-    async def _get_direct_link_html(self, url: str) -> Optional[tuple[str, str, int]]:
+    async def _get_direct_link_html(self, url: str) -> tuple[str, str, int] | None:
         try:
             text = await self.http.get_text(url)
             soup = BeautifulSoup(text, "lxml")
@@ -74,11 +74,13 @@ class MediaFireExtractor(BaseExtractor):
                 scrambled = download_btn.get("data-scrambled-url")
                 if scrambled:
                     try:
-                        direct_url = base64.b64decode(scrambled).decode()
+                        direct_url = base64.b64decode(str(scrambled)).decode()
                     except Exception:
-                        direct_url = download_btn.get("href", "")
+                        href = download_btn.get("href", "")
+                        direct_url = str(href) if href else ""
                 else:
-                    direct_url = download_btn.get("href", "")
+                    href = download_btn.get("href", "")
+                    direct_url = str(href) if href else ""
 
                 if direct_url and direct_url.startswith("http"):
                     filename_div = soup.find("div", {"class": "filename"})
@@ -126,7 +128,7 @@ class MediaFireExtractor(BaseExtractor):
 
         return files
 
-    async def extract(self, url: str, password: Optional[str] = None) -> list[FileInfo]:
+    async def extract(self, url: str, password: str | None = None) -> list[FileInfo]:
         file_id = self.extract_id(url)
         if not file_id:
             raise ExtractorError(f"Could not extract file ID from {url}")
@@ -175,9 +177,7 @@ class MediaFireExtractor(BaseExtractor):
 
         return files
 
-    async def extract_folder(
-        self, url: str, password: Optional[str] = None
-    ) -> Optional[FolderInfo]:
+    async def extract_folder(self, url: str, password: str | None = None) -> FolderInfo | None:
         if not self._is_folder(url):
             return None
 

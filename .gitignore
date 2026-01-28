@@ -57,6 +57,16 @@ Thumbs.db
 .env.local
 *.local.yaml
 
+
 # Downloaded files
 *.part
 downloads/
+
+# Tests & Agents (Private)
+tests/
+agents/
+*.main.kts
+*.plan
+plans/
+brain/
+.sisyphus/

@@ -1,46 +1,110 @@
-"""Tests for concurrent folder extraction in extractors.
-
-Tests for folder extraction behavior:
-- Folder with multiple files should extract concurrently
-- Extraction should respect rate limiting
-- All files should be retrieved without errors
-"""
+"""Tests for GoFile extractor."""
 
 import asyncio
-import pytest
-import pytest_asyncio
+from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
+from getit.extractors.base import ExtractorError
 from getit.extractors.gofile import GoFileExtractor
-from getit.config import Settings
 from getit.utils.http import HTTPClient
 
 
-class TestConcurrentFolderExtraction:
-    """Test suite for concurrent folder extraction."""
+@pytest.fixture
+def mock_http():
+    return MagicMock(spec=HTTPClient)
 
-    @pytest_asyncio.fixture
-    def mock_http_client():
-        """Create mock HTTPClient."""
-        return HTTPClient(session=AsyncMock())
 
-    @pytest_asyncio.fixture
-    def extractor():
-        """Create extractor with mocked HTTP."""
-        return GoFileExtractor(http_client=AsyncMock())
+class TestGoFileExtractor:
+    def test_extractor_name(self):
+        """GoFileExtractor has correct name."""
+        assert GoFileExtractor.EXTRACTOR_NAME == "gofile"
 
-    async def test_gofile_folder_extraction_concurrent(self, extractor, mock_http_client):
-        """Folder with multiple files should extract concurrently."""
-        async with extractor:
-            folder_info = await extractor.extract_folder(
-                "https://gofile.io/d/testfolder", password=None
-            )
+    def test_supported_domains(self):
+        """GoFileExtractor supports gofile.io domain."""
+        assert "gofile.io" in GoFileExtractor.SUPPORTED_DOMAINS
 
-        # Should have extracted all files
-        assert len(folder_info.files) == 10
-        assert all(f.status.value == "completed" for f in folder_info.files)
+    def test_can_handle_gofile_url(self, mock_http):
+        """GoFileExtractor can handle gofile URLs."""
+        extractor = GoFileExtractor(mock_http)
+        assert extractor.can_handle("https://gofile.io/d/abc123")
 
-    async def test_folder_extraction_respects_rate_limit(self, extractor, mock_http_client):
-        """Concurrent extraction should respect rate limiting."""
-        with pytest.raises(Exception, match="rate limit"):
-            # Use asyncio.gather with too many concurrent tasks would exceed rate limit
-            pass
+    def test_cannot_handle_other_url(self, mock_http):
+        """GoFileExtractor rejects non-gofile URLs."""
+        extractor = GoFileExtractor(mock_http)
+        assert not extractor.can_handle("https://example.com/file")
+
+    def test_extractor_initialization(self, mock_http):
+        """GoFileExtractor initializes with HTTP client."""
+        extractor = GoFileExtractor(mock_http)
+        assert extractor.http is mock_http
+
+
+class TestGoFileStatusErrors:
+    def test_status_error_not_found(self, mock_http):
+        """error-notFound raises NotFound."""
+        from getit.extractors.base import NotFound
+
+        extractor = GoFileExtractor(mock_http)
+        with pytest.raises(NotFound):
+            extractor._check_status_error("error-notFound", "abc123")
+
+    def test_status_error_password_required(self, mock_http):
+        """error-passwordRequired raises PasswordRequired."""
+        from getit.extractors.base import PasswordRequired
+
+        extractor = GoFileExtractor(mock_http)
+        with pytest.raises(PasswordRequired):
+            extractor._check_status_error("error-passwordRequired", "abc123")
+
+    def test_status_error_overloaded(self, mock_http):
+        """error-overloaded raises ExtractorError."""
+        extractor = GoFileExtractor(mock_http)
+        with pytest.raises(ExtractorError, match="overloaded"):
+            extractor._check_status_error("error-overloaded", "abc123")
+
+    def test_status_ok_no_error(self, mock_http):
+        """ok status does not raise."""
+        extractor = GoFileExtractor(mock_http)
+        extractor._check_status_error("ok", "abc123")
+
+
+class TestGoFileTokenInvalidation:
+    def test_invalidate_tokens_basic(self, mock_http):
+        """_invalidate_tokens clears token."""
+        extractor = GoFileExtractor(mock_http)
+        extractor._token = "test_token"
+        extractor._token_expiry = 9999999999
+        extractor._invalidate_tokens()
+        assert extractor._token is None
+        assert extractor._token_expiry == 0
+
+    def test_invalidate_tokens_with_website(self, mock_http):
+        """_invalidate_tokens with include_website_token clears both."""
+        extractor = GoFileExtractor(mock_http)
+        extractor._token = "test_token"
+        extractor._website_token = "wt_token"
+        extractor._token_expiry = 9999999999
+        extractor._website_token_expiry = 9999999999
+        extractor._invalidate_tokens(include_website_token=True)
+        assert extractor._token is None
+        assert extractor._website_token is None
+
+
+class TestGoFileCacheParameter:
+    @pytest.mark.asyncio
+    async def test_get_content_uses_cache_parameter(self, mock_http):
+        """_get_content includes cache=true in URL."""
+        extractor = GoFileExtractor(mock_http)
+        extractor._token = "test_token"
+        extractor._token_expiry = 9999999999
+        extractor._website_token = "wt_token"
+        extractor._website_token_expiry = 9999999999
+
+        mock_http.get_json = AsyncMock(return_value={"status": "ok", "data": {"children": {}}})
+
+        await extractor._get_content("abc123")
+
+        call_args = mock_http.get_json.call_args
+        url = call_args[0][0]
+        assert "cache=true" in url

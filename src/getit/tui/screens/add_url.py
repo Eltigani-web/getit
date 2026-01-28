@@ -1,16 +1,15 @@
 """Add URL modal screen for the getit TUI application."""
+
 from __future__ import annotations
 
-from typing import Optional
-
-from textual.app import App, ComposeResult
-from textual.containers import Container, Horizontal, Input, Label
-from textual.widgets import Button, Input
-from getit.config import Settings
-from getit.core.manager import DownloadManager
+from textual.app import ComposeResult
+from textual.binding import Binding
+from textual.containers import Container, Horizontal
+from textual.screen import ModalScreen
+from textual.widgets import Button, Input, Label
 
 
-class AddUrlScreen(ModalScreen[Optional[tuple[str, Optional[str]]]):
+class AddUrlScreen(ModalScreen[tuple[str, str | None] | None]):
     """Modal screen for adding a new download URL."""
 
     CSS = """
@@ -55,7 +54,9 @@ AddUrlScreen {
             yield url_input
 
             yield Label("Password (optional):", id="password_label")
-            password_input = Input(placeholder="Password (optional)", id="password_input", password=True)
+            password_input = Input(
+                placeholder="Password (optional)", id="password_input", password=True
+            )
             yield password_input
 
             with Horizontal(id="buttons"):

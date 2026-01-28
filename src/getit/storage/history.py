@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-import asyncio
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 import aiosqlite
 
@@ -19,14 +17,14 @@ class HistoryEntry:
     extractor: str
     status: str
     started_at: datetime
-    completed_at: Optional[datetime]
-    error: Optional[str]
+    completed_at: datetime | None
+    error: str | None
 
 
 class DownloadHistory:
     def __init__(self, db_path: Path):
         self.db_path = db_path
-        self._db: Optional[aiosqlite.Connection] = None
+        self._db: aiosqlite.Connection | None = None
 
     async def __aenter__(self) -> DownloadHistory:
         await self.connect()
@@ -99,7 +97,7 @@ class DownloadHistory:
         self,
         download_id: int,
         status: str,
-        error: Optional[str] = None,
+        error: str | None = None,
     ) -> None:
         if not self._db:
             return
@@ -107,7 +105,7 @@ class DownloadHistory:
         if status == "completed":
             await self._db.execute(
                 """
-                UPDATE downloads 
+                UPDATE downloads
                 SET status = ?, completed_at = CURRENT_TIMESTAMP, error = ?
                 WHERE id = ?
                 """,
@@ -122,7 +120,7 @@ class DownloadHistory:
             )
         await self._db.commit()
 
-    async def get_download(self, download_id: int) -> Optional[HistoryEntry]:
+    async def get_download(self, download_id: int) -> HistoryEntry | None:
         if not self._db:
             return None
 
@@ -131,7 +129,7 @@ class DownloadHistory:
         ) as cursor:
             row = await cursor.fetchone()
             if row:
-                return self._row_to_entry(row)
+                return self._row_to_entry(tuple(row))
         return None
 
     async def get_recent(self, limit: int = 50) -> list[HistoryEntry]:
@@ -143,7 +141,7 @@ class DownloadHistory:
             "SELECT * FROM downloads ORDER BY started_at DESC LIMIT ?", (limit,)
         ) as cursor:
             async for row in cursor:
-                entries.append(self._row_to_entry(row))
+                entries.append(self._row_to_entry(tuple(row)))
         return entries
 
     async def get_by_status(self, status: str) -> list[HistoryEntry]:
@@ -156,7 +154,7 @@ class DownloadHistory:
             (status,),
         ) as cursor:
             async for row in cursor:
-                entries.append(self._row_to_entry(row))
+                entries.append(self._row_to_entry(tuple(row)))
         return entries
 
     async def url_exists(self, url: str) -> bool:
@@ -169,14 +167,14 @@ class DownloadHistory:
         ) as cursor:
             return await cursor.fetchone() is not None
 
-    async def clear_history(self, before_days: Optional[int] = None) -> int:
+    async def clear_history(self, before_days: int | None = None) -> int:
         if not self._db:
             return 0
 
         if before_days:
             cursor = await self._db.execute(
                 """
-                DELETE FROM downloads 
+                DELETE FROM downloads
                 WHERE started_at < datetime('now', ? || ' days')
                 """,
                 (f"-{before_days}",),

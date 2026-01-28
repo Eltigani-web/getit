@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
+import random
 import re
 import time
-from typing import TYPE_CHECKING, ClassVar, Optional
+from typing import TYPE_CHECKING, ClassVar
 
 from aiolimiter import AsyncLimiter
 
@@ -52,10 +54,10 @@ class GoFileExtractor(BaseExtractor):
         "error-overloaded": (ExtractorError, "Server overloaded, try again later"),
     }
 
-    def __init__(self, http_client: HTTPClient, api_token: Optional[str] = None):
+    def __init__(self, http_client: HTTPClient, api_token: str | None = None):
         super().__init__(http_client)
-        self._token: Optional[str] = api_token
-        self._website_token: Optional[str] = None
+        self._token: str | None = api_token
+        self._website_token: str | None = None
         self._website_token_expiry: float = 0
         self._token_expiry: float = 0
         self._limiter = AsyncLimiter(10, 1)
@@ -112,9 +114,9 @@ class GoFileExtractor(BaseExtractor):
             raise exc_class(msg_template.format(content_id=content_id) if msg_template else None)
 
     async def _get_content(
-        self, content_id: str, password: Optional[str] = None, max_retries: int = 2
+        self, content_id: str, password: str | None = None, max_retries: int = 2
     ) -> dict:
-        last_error: Optional[Exception] = None
+        last_error: Exception | None = None
 
         for attempt in range(max_retries + 1):
             try:
@@ -129,7 +131,7 @@ class GoFileExtractor(BaseExtractor):
                 if password:
                     params["password"] = hashlib.sha256(password.encode()).hexdigest()
 
-                url = f"{self.API_URL}/contents/{content_id}"
+                url = f"{self.API_URL}/contents/{content_id}?cache=true"
 
                 async with self._limiter:
                     data = await self.http.get_json(url, headers=headers, params=params)
@@ -139,8 +141,17 @@ class GoFileExtractor(BaseExtractor):
                 if status in ("error-wrongToken", "error-tokenInvalid"):
                     self._invalidate_tokens()
                     if attempt < max_retries:
+                        backoff = 2**attempt + random.uniform(0, 1)
+                        await asyncio.sleep(min(backoff, 30))
                         continue
                     raise ExtractorError("Invalid token after retries")
+
+                if status == "error-overloaded":
+                    if attempt < max_retries:
+                        backoff = 2**attempt + random.uniform(0, 1)
+                        await asyncio.sleep(min(backoff, 30))
+                        continue
+                    raise ExtractorError("Server overloaded after retries")
 
                 self._check_status_error(status, content_id)
 
@@ -149,7 +160,9 @@ class GoFileExtractor(BaseExtractor):
 
                 return data["data"]
 
-            except (NotFound, PasswordRequired, ExtractorError):
+            except (NotFound, PasswordRequired):
+                raise
+            except ExtractorError:
                 raise
             except Exception as e:
                 last_error = e
@@ -157,6 +170,8 @@ class GoFileExtractor(BaseExtractor):
                 if "401" in error_str or "403" in error_str or "unauthorized" in error_str:
                     self._invalidate_tokens(include_website_token=True)
                     if attempt < max_retries:
+                        backoff = 2**attempt + random.uniform(0, 1)
+                        await asyncio.sleep(min(backoff, 30))
                         continue
                 raise
 
@@ -164,33 +179,40 @@ class GoFileExtractor(BaseExtractor):
             raise last_error
         raise ExtractorError("Unknown error fetching content")
 
-    def _parse_file(self, file_data: dict, folder_name: Optional[str] = None) -> FileInfo:
+    def _parse_file(self, file_data: dict, folder_name: str | None = None) -> FileInfo:
         link = file_data.get("link", "")
         if link == "overloaded":
             link = file_data.get("directLink", "")
 
+        filename = file_data.get("name", "unknown")
+        size = file_data.get("size", 0)
+        md5 = file_data.get("md5")
+        checksum_type = "md5" if md5 else None
+
+        print(f"[DEBUG] _parse_file: filename={filename}, link={link}, md5={md5}")
+
         return FileInfo(
             url=link,
-            filename=file_data.get("name", "unknown"),
-            size=file_data.get("size", 0),
+            filename=filename,
+            size=size,
             direct_url=link,
             headers={"Authorization": f"Bearer {self._token}"},
             cookies={"accountToken": self._token} if self._token else {},
             parent_folder=folder_name,
             extractor_name=self.EXTRACTOR_NAME,
-            checksum=file_data.get("md5"),
-            checksum_type="md5" if file_data.get("md5") else None,
+            checksum=md5,
+            checksum_type=checksum_type,
         )
 
     async def extract(
-        self, url: str, password: Optional[str] = None, max_depth: int = 10
+        self, url: str, password: str | None = None, max_depth: int = 10
     ) -> list[FileInfo]:
         return await self._extract_recursive(url, password, max_depth, 0)
 
     async def _extract_recursive(
         self,
         url: str,
-        password: Optional[str],
+        password: str | None,
         max_depth: int,
         current_depth: int,
     ) -> list[FileInfo]:
@@ -208,19 +230,21 @@ class GoFileExtractor(BaseExtractor):
         for item in children:
             if item.get("type") == "file":
                 files.append(self._parse_file(item, content.get("name")))
-            if item.get("type") == "folder" and current_depth < max_depth:
-                sub_files = await self._extract_files(
-                    list(item.get("children", {}).values()),
-                    max_depth,
-                    current_depth + 1,
-                )
-                files.extend(sub_files)
+            elif item.get("type") == "folder" and current_depth < max_depth:
+                folder_id = item.get("id") or item.get("code")
+                if folder_id:
+                    sub_url = f"https://gofile.io/d/{folder_id}"
+                    sub_files = await self._extract_recursive(
+                        sub_url,
+                        password,
+                        max_depth,
+                        current_depth + 1,
+                    )
+                    files.extend(sub_files)
 
         return files
 
-    async def extract_folder(
-        self, url: str, password: Optional[str] = None
-    ) -> Optional[FolderInfo]:
+    async def extract_folder(self, url: str, password: str | None = None) -> FolderInfo | None:
         content_id = self.extract_id(url)
         if not content_id:
             return None

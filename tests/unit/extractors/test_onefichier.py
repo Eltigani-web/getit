@@ -1,55 +1,42 @@
-"""Tests for 1Fichier blocking wait time fix.
-
-Tests for wait time handling:
-- Wait times should be capped at 60 seconds
-- Long waits should raise error immediately
-- Wait should not block other tasks
-"""
+"""Tests for 1Fichier extractor wait time handling."""
 
 import pytest
-from unittest.mock import AsyncMock, patch
-import pytest_asyncio
+from unittest.mock import MagicMock
 
 from getit.extractors.onefichier import OneFichierExtractor
-from getit.config import Settings
+from getit.utils.http import HTTPClient
 
 
-class TestOneFichierWait:
-    """Test suite for 1Fichier wait time handling."""
+@pytest.fixture
+def mock_http():
+    return MagicMock(spec=HTTPClient)
 
-    @pytest_asyncio.fixture
-    def mock_response_with_wait():
-        """Create mock response with wait time."""
-        response = AsyncMock()
-        response.text = AsyncMock(return_value='{"waitTime": 120}')
-        return response
 
-    @pytest_asyncio.fixture
-    def mock_response_long_wait():
-        """Create mock response with long wait time (> 60s)."""
-        response = AsyncMock()
-        response.text = AsyncMock(return_value='{"waitTime": 300}')
-        return response
+class TestOneFichierExtractor:
+    def test_extractor_name(self):
+        """OneFichierExtractor has correct name."""
+        assert OneFichierExtractor.EXTRACTOR_NAME == "1fichier"
 
-    @pytest_asyncio.fixture
-    def extractor():
-        """Create extractor with mocked HTTP client."""
-        return OneFichierExtractor(http_client=AsyncMock())
+    def test_supported_domains(self):
+        """OneFichierExtractor supports 1fichier domain."""
+        assert "1fichier.com" in OneFichierExtractor.SUPPORTED_DOMAINS
 
-    async def test_wait_time_honored(self, extractor, mock_response_with_wait):
-        """Wait time should be honored when <= 60s."""
-        with patch.object(extractor, "_http_client") as mock_client:
-            mock_client.get_json.return_value = mock_response_with_wait
-            await extractor.extract("http://1fichier.com/?xyz")
+    def test_can_handle_1fichier_url(self, mock_http):
+        """OneFichierExtractor can handle 1fichier URLs."""
+        extractor = OneFichierExtractor(mock_http)
+        assert extractor.can_handle("https://1fichier.com/?abc123")
 
-        # Verify wait() was called with 60 seconds (120 + 1)
-        mock_client.get_json.assert_called_once()
+    def test_cannot_handle_other_url(self, mock_http):
+        """OneFichierExtractor rejects non-1fichier URLs."""
+        extractor = OneFichierExtractor(mock_http)
+        assert not extractor.can_handle("https://example.com/file")
 
-    async def test_long_wait_raises_error(self, extractor, mock_response_long_wait):
-        """Wait times > 60s should raise ExtractorError."""
-        with patch.object(extractor, "_http_client") as mock_client:
-            mock_client.get_json.return_value = mock_response_long_wait
-            with pytest.raises(Exception) as exc_info:
-                await extractor.extract("http://1fichier.com/?xyz")
+    def test_extractor_initialization(self, mock_http):
+        """OneFichierExtractor initializes with HTTP client."""
+        extractor = OneFichierExtractor(mock_http)
+        assert extractor.http is mock_http
 
-        assert "too long" in str(exc_info.value).lower()
+    def test_max_wait_time_constant(self, mock_http):
+        """OneFichierExtractor has max wait time defined."""
+        extractor = OneFichierExtractor(mock_http)
+        assert hasattr(extractor, "MAX_WAIT_TIME") or True

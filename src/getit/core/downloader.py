@@ -4,12 +4,14 @@ import asyncio
 import hashlib
 import shutil
 from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum, auto
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Optional
+from typing import TYPE_CHECKING, Any, Literal
 
 import aiofiles
+import aiohttp
 from Cryptodome.Cipher import AES
 from Cryptodome.Util import Counter
 
@@ -49,7 +51,7 @@ class DownloadProgress:
     speed: float = 0.0
     eta: float = 0.0
     status: DownloadStatus = DownloadStatus.PENDING
-    error: Optional[str] = None
+    error: str | None = None
     _speed_samples: deque = field(default_factory=lambda: deque(maxlen=10))
     _last_speed: float = 0.0
 
@@ -105,7 +107,7 @@ class FileDownloader:
         http_client: HTTPClient,
         chunk_size: int = 1024 * 1024,
         enable_resume: bool = True,
-        speed_limit: Optional[int] = None,
+        speed_limit: int | None = None,
         verify_checksum: bool = True,
         chunk_timeout: float = 60.0,
     ):
@@ -136,7 +138,7 @@ class FileDownloader:
         download_url = file_info.direct_url or file_info.url
         return headers, cookies, download_url
 
-    def _prepare_decryptor(self, file_info: FileInfo) -> tuple[Optional[Any], bool]:
+    def _prepare_decryptor(self, file_info: FileInfo) -> tuple[Any | None, bool]:
         """Create decryptor if file is encrypted with Mega encryption."""
         is_encrypted = getattr(file_info, "encrypted", False)
         if is_encrypted and file_info.encryption_key and file_info.encryption_iv:
@@ -182,8 +184,8 @@ class FileDownloader:
         """Handle pause state. Returns False if cancelled during pause."""
         while task.progress.status == DownloadStatus.PAUSED:
             await asyncio.sleep(0.1)
-            if task.progress.status == DownloadStatus.CANCELLED:
-                return False
+            if task.progress.status != DownloadStatus.PAUSED:
+                return task.progress.status != DownloadStatus.CANCELLED
         return True
 
     async def _apply_speed_limit(self, chunk_len: int, current_speed: float) -> None:
@@ -202,7 +204,7 @@ class FileDownloader:
         self,
         task: DownloadTask,
         chunk_iter: Any,
-    ) -> Optional[bytes]:
+    ) -> bytes | None:
         """Get next chunk with retry logic.
 
         Wraps chunk iteration with retry to handle transient network failures.
@@ -212,22 +214,15 @@ class FileDownloader:
                 return await chunk_iter.__anext__()
             except StopAsyncIteration:
                 return None
-            except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+            except (TimeoutError, aiohttp.ClientError) as e:
                 if attempt < task.max_retries:
-                    backoff = 2 ** attempt
+                    backoff = 2**attempt
                     await asyncio.sleep(backoff)
                     continue
                 task.progress.status = DownloadStatus.FAILED
-                task.progress.error = f"Chunk download timed out after {task.max_retries} retries: {e}"
-                return None
-        return None
-            except (aiohttp.ClientError, asyncio.TimeoutError) as e:
-                if attempt < task.max_retries:
-                    backoff = 2 ** attempt
-                    await asyncio.sleep(backoff)
-                    continue
-                task.progress.status = DownloadStatus.FAILED
-                task.progress.error = f"Chunk download timed out after {task.max_retries} retries: {e}"
+                task.progress.error = (
+                    f"Chunk download timed out after {task.max_retries} retries: {e}"
+                )
                 return None
         return None
 
@@ -262,6 +257,7 @@ class FileDownloader:
         checksum_type: str,
     ) -> bool:
         """Verify file checksum matches expected value."""
+        print(f"[DEBUG] _verify_file_checksum: file_path={file_path}")
         checksum_type = checksum_type.lower()
         if checksum_type not in self.HASH_ALGORITHMS:
             return True
@@ -273,6 +269,7 @@ class FileDownloader:
                 hasher.update(chunk)
 
         actual = hasher.hexdigest()
+        print(f"[DEBUG] Checksum for {file_path}: expected={expected_checksum}, actual={actual}")
         if actual.lower() != expected_checksum.lower():
             raise ChecksumMismatchError(expected_checksum, actual, checksum_type)
 
@@ -303,7 +300,9 @@ class FileDownloader:
         ctr = Counter.new(128, initial_value=(iv_int << 64) + initial_counter)
         return AES.new(key, AES.MODE_CTR, counter=ctr)
 
-    async     def _cleanup_on_error(self, task: DownloadTask, temp_path: Path) -> None:
+    async def _cleanup_on_error(
+        self, task: DownloadTask, temp_path: Path, error_msg: str | None = None
+    ) -> None:
         """Clean up temporary partial file on error.
 
         Deletes the .part file and sets task to FAILED.
@@ -315,27 +314,20 @@ class FileDownloader:
 
         # Mark task as failed with error details
         task.progress.status = DownloadStatus.FAILED
-        if task.progress.error:
+        if error_msg:
+            task.progress.error = error_msg
+        elif task.progress.error:
             task.progress.error = f"Failed to clean up: {task.progress.error}"
         else:
             task.progress.error = "Download failed during cleanup"
 
-    def _handle_cancellation(self, task: DownloadTask, temp_path: Path) -> bool:
-        """Handle download cancellation."""
-        if temp_path.exists() and not self.enable_resume:
-            temp_path.unlink()
-            await self._cleanup_on_error(task, temp_path, "Download cancelled")
-            return True
-
-        return False
-
-    def _download_chunks(
+    async def _download_chunks(
         self,
         task: DownloadTask,
         response: Any,
         file_handle: Any,
-        decryptor: Optional[Any],
-        on_progress: Optional[ProgressCallback],
+        decryptor: Any | None,
+        on_progress: ProgressCallback | None,
     ) -> bool:
         """Download file chunks with progress tracking."""
         last_update_time = asyncio.get_event_loop().time()
@@ -348,7 +340,7 @@ class FileDownloader:
 
             chunk = await self._get_next_chunk(task, chunk_iter)
             if chunk is None:
-                if task.progress.status == DownloadStatus.FAILED:
+                if task.progress.status == DownloadStatus.FAILED:  # type: ignore[comparison-overlap]
                     return False
                 break
 
@@ -365,12 +357,10 @@ class FileDownloader:
             try:
                 await file_handle.write(chunk)
             except OSError as e:
-                self._cleanup_on_error(task, temp_path, f"Disk write failed: {e}")
+                await self._cleanup_on_error(task, task.output_path, f"Disk write failed: {e}")
                 if e.errno == 28:
-                    task.progress.status = DownloadStatus.FAILED
                     task.progress.error = "Disk full: No space left on device"
-                else:
-                    raise
+                return False
 
             chunk_len = len(chunk)
             task.progress.downloaded += chunk_len
@@ -399,30 +389,34 @@ class FileDownloader:
         headers: dict[str, str],
         cookies: dict[str, str],
         resume_pos: int,
-        decryptor: Optional[Any],
-        on_progress: Optional[ProgressCallback],
+        decryptor: Any | None,
+        on_progress: ProgressCallback | None,
     ) -> bool:
-        """Perform the actual file download."""
-        mode = "ab" if resume_pos > 0 else "wb"
+        """Perform actual file download."""
+        print(
+            f"[DEBUG] _perform_download called: task_id={task.task_id}, output_path={task.output_path}"
+        )
+        mode: Literal["ab", "wb"] = "ab" if resume_pos > 0 else "wb"
 
-        async with aiofiles.open(temp_path, mode) as f:
-            async with await self.http.session.get(
+        async with (
+            aiofiles.open(temp_path, mode) as f,
+            await self.http.session.get(
                 download_url,
                 headers=headers,
                 cookies=cookies,
-            ) as resp:
-                if resp.status == 416:
-                    if temp_path.exists():
-                        return True
+            ) as resp,
+        ):
+            if resp.status == 416 and temp_path.exists():
+                return True
 
-                resp.raise_for_status()
+            resp.raise_for_status()
 
-                if task.progress.total == 0:
-                    content_length = resp.headers.get("content-length")
-                    if content_length:
-                        task.progress.total = int(content_length) + resume_pos
+            if task.progress.total == 0:
+                content_length = resp.headers.get("content-length")
+                if content_length:
+                    task.progress.total = int(content_length) + resume_pos
 
-                return await self._download_chunks(task, resp, f, decryptor, on_progress)
+            return await self._download_chunks(task, resp, f, decryptor, on_progress)
 
     async def _finalize_download(
         self,
@@ -430,9 +424,10 @@ class FileDownloader:
         file_info: FileInfo,
         output_path: Path,
         temp_path: Path,
-        on_progress: Optional[ProgressCallback],
+        on_progress: ProgressCallback | None,
     ) -> bool:
         """Finalize download by renaming temp file and verifying checksum."""
+        print(f"[DEBUG] _finalize_download: temp_path={temp_path}, output_path={output_path}")
         temp_path.rename(output_path)
         output_path.chmod(0o644)
 
@@ -479,7 +474,7 @@ class FileDownloader:
     async def download(
         self,
         task: DownloadTask,
-        on_progress: Optional[ProgressCallback] = None,
+        on_progress: ProgressCallback | None = None,
     ) -> bool:
         """Download a file with resume support and progress tracking.
 
@@ -495,7 +490,9 @@ class FileDownloader:
         output_path = task.output_path
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        temp_path = output_path.with_suffix(output_path.suffix + ".part")
+
+        # Use the output_path directly - manager already created unique file via mkstemp
+        temp_path = output_path
 
         try:
             task.progress.status = DownloadStatus.DOWNLOADING

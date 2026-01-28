@@ -2,13 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import re
-import sys
 from pathlib import Path
-from typing import Annotated, Optional
+from typing import Annotated
 
 import typer
 from rich.console import Console
-from rich.panel import Panel
 from rich.progress import (
     BarColumn,
     DownloadColumn,
@@ -20,12 +18,12 @@ from rich.progress import (
     TransferSpeedColumn,
 )
 from rich.table import Table
-from rich.text import Text
 
 from getit import __version__
-from getit.config import Settings, get_settings
-from getit.core.downloader import DownloadStatus, DownloadTask
-from getit.core.manager import DownloadManager
+from getit.config import get_settings
+from getit.core.downloader import DownloadTask
+from getit.core.manager import DownloadManager, DownloadResult
+from getit.extractors.base import FileInfo
 
 app = typer.Typer(
     name="getit",
@@ -43,7 +41,8 @@ def version_callback(value: bool) -> None:
         raise typer.Exit()
 
 
-def format_size(size: int) -> str:
+def format_size(size_bytes: int) -> str:
+    size: float = float(size_bytes)
     for unit in ["B", "KB", "MB", "GB", "TB"]:
         if size < 1024:
             return f"{size:.1f} {unit}"
@@ -105,13 +104,17 @@ class ProgressTracker:
 @app.command()
 def download(
     urls: Annotated[
-        list[str],
+        list[str] | None,
         typer.Argument(
             help="URLs to download (supports GoFile, PixelDrain, MediaFire, 1Fichier, Mega.nz)"
         ),
-    ],
+    ] = None,
+    file: Annotated[
+        Path | None,
+        typer.Option("-f", "--file", help="File containing URLs (one per line)"),
+    ] = None,
     output: Annotated[
-        Optional[Path],
+        Path | None,
         typer.Option("-o", "--output", help="Output directory"),
     ] = None,
     concurrent: Annotated[
@@ -119,7 +122,7 @@ def download(
         typer.Option("-c", "--concurrent", help="Max concurrent downloads"),
     ] = 3,
     password: Annotated[
-        Optional[str],
+        str | None,
         typer.Option("-p", "--password", help="Password for protected files"),
     ] = None,
     no_resume: Annotated[
@@ -127,10 +130,31 @@ def download(
         typer.Option("--no-resume", help="Disable resume for partial downloads"),
     ] = False,
     limit: Annotated[
-        Optional[str],
+        str | None,
         typer.Option("--limit", help="Speed limit (e.g., 1M, 500K)"),
     ] = None,
 ) -> None:
+    all_urls: list[str] = []
+
+    if file:
+        if not file.exists():
+            console.print(f"[red]File not found:[/red] {file}")
+            raise typer.Exit(1)
+        with open(file, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#"):
+                    url_part = line.split()[0] if line.split() else ""
+                    if url_part:
+                        all_urls.append(url_part)
+
+    if urls:
+        all_urls.extend(urls)
+
+    if not all_urls:
+        console.print("[red]No URLs provided. Use positional arguments or -f/--file[/red]")
+        raise typer.Exit(1)
+
     settings = get_settings()
     output_dir = output or settings.download_dir
 
@@ -151,28 +175,31 @@ def download(
             speed_limit=speed_limit,
         ) as manager:
             all_tasks: list[DownloadTask] = []
+            extraction_semaphore = asyncio.Semaphore(10)
 
-            with console.status("[bold green]Extracting file information...") as status:
-                for url in urls:
+            async def extract_url(url: str) -> list[FileInfo]:
+                async with extraction_semaphore:
+                    extractor = manager.get_extractor(url)
+                    if not extractor:
+                        console.print(f"[red]No extractor found for:[/red] {url}")
+                        return []
                     try:
-                        extractor = manager.get_extractor(url)
-                        if not extractor:
-                            console.print(f"[red]No extractor found for:[/red] {url}")
-                            continue
-
-                        status.update(f"[bold green]Extracting from {extractor.EXTRACTOR_NAME}...")
-                        files = await manager.extract_files(url, password)
-
-                        for file_info in files:
-                            task = manager.create_task(file_info)
-                            all_tasks.append(task)
-                            console.print(
-                                f"  [green]✓[/green] {file_info.filename} "
-                                f"[dim]({format_size(file_info.size)})[/dim]"
-                            )
-
+                        return await manager.extract_files(url, password)
                     except Exception as e:
                         console.print(f"[red]Error extracting {url}:[/red] {e}")
+                        return []
+
+            with console.status(f"[bold green]Extracting {len(all_urls)} URL(s) in parallel..."):
+                extraction_results = await asyncio.gather(*[extract_url(url) for url in all_urls])
+
+            for files in extraction_results:
+                for file_info in files:
+                    task = manager.create_task(file_info)
+                    all_tasks.append(task)
+                    console.print(
+                        f"  [green]✓[/green] {file_info.filename} "
+                        f"[dim]({format_size(file_info.size)})[/dim]"
+                    )
 
             if not all_tasks:
                 console.print("[yellow]No files to download[/yellow]")
@@ -187,13 +214,13 @@ def download(
                 tracker.add_task(task)
 
             with progress:
-                download_coros = [
-                    manager.download_task(task, on_progress=tracker.update) for task in all_tasks
-                ]
-
-                results = await asyncio.gather(*download_coros)
-
-            console.print()
+                # Downloads run sequentially to prevent task object swap bug
+                # Oracle recommended this over complex concurrent refactoring
+                # Correctness prioritized over speed - sequential downloads work correctly
+                # TODO: Revisit concurrency if performance becomes bottleneck
+                for task in all_tasks:
+                    result = await manager.download_task(task, on_progress=tracker.update)
+                    results.append(result)
 
             success_count = sum(1 for r in results if r.success)
             fail_count = len(results) - success_count
@@ -216,7 +243,7 @@ def download(
 def info(
     url: Annotated[str, typer.Argument(help="URL to get information about")],
     password: Annotated[
-        Optional[str],
+        str | None,
         typer.Option("-p", "--password", help="Password for protected files"),
     ] = None,
 ) -> None:
@@ -267,7 +294,7 @@ def tui() -> None:
     except ImportError as e:
         console.print(f"[red]TUI dependencies not available:[/red] {e}")
         console.print("Install with: pip install getit[tui]")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from None
 
 
 @app.command()
@@ -341,7 +368,7 @@ def supported() -> None:
 @app.callback()
 def main(
     version: Annotated[
-        Optional[bool],
+        bool | None,
         typer.Option("--version", "-V", callback=version_callback, is_eager=True),
     ] = None,
 ) -> None:

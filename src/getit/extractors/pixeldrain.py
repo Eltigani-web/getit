@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING, ClassVar, Optional
+from typing import TYPE_CHECKING, ClassVar
 
 from getit.extractors.base import (
     BaseExtractor,
@@ -24,7 +24,7 @@ class PixelDrainExtractor(BaseExtractor):
 
     API_URL = "https://pixeldrain.com/api"
 
-    def __init__(self, http_client: HTTPClient, api_key: Optional[str] = None):
+    def __init__(self, http_client: HTTPClient, api_key: str | None = None):
         super().__init__(http_client)
         self._api_key = api_key
 
@@ -38,7 +38,7 @@ class PixelDrainExtractor(BaseExtractor):
         return headers
 
     @classmethod
-    def extract_id(cls, url: str) -> Optional[str]:
+    def extract_id(cls, url: str) -> str | None:
         match = cls.URL_PATTERN.match(url)
         if match:
             return match.group("id")
@@ -69,7 +69,7 @@ class PixelDrainExtractor(BaseExtractor):
             raise ExtractorError(message)
         return data
 
-    def _parse_file(self, file_data: dict, folder_name: Optional[str] = None) -> FileInfo:
+    def _parse_file(self, file_data: dict, folder_name: str | None = None) -> FileInfo:
         file_id = file_data.get("id", "")
         return FileInfo(
             url=f"https://pixeldrain.com/u/{file_id}",
@@ -83,7 +83,7 @@ class PixelDrainExtractor(BaseExtractor):
             checksum_type="sha256" if file_data.get("hash_sha256") else None,
         )
 
-    async def extract(self, url: str, password: Optional[str] = None) -> list[FileInfo]:
+    async def extract(self, url: str, password: str | None = None) -> list[FileInfo]:
         file_id = self.extract_id(url)
         if not file_id:
             raise ExtractorError(f"Could not extract file ID from {url}")
@@ -106,9 +106,7 @@ class PixelDrainExtractor(BaseExtractor):
 
         return files
 
-    async def extract_folder(
-        self, url: str, password: Optional[str] = None
-    ) -> Optional[FolderInfo]:
+    async def extract_folder(self, url: str, password: str | None = None) -> FolderInfo | None:
         file_id = self.extract_id(url)
         if not file_id:
             return None

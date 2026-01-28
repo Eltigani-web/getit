@@ -1,17 +1,13 @@
 from __future__ import annotations
 
 import base64
-import binascii
-import hashlib
 import json
-import os
 import random
 import re
 import struct
-from typing import TYPE_CHECKING, Any, ClassVar, Optional
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from Cryptodome.Cipher import AES
-from Cryptodome.Util import Counter
 
 from getit.extractors.base import (
     BaseExtractor,
@@ -19,7 +15,6 @@ from getit.extractors.base import (
     FileInfo,
     FolderInfo,
     NotFound,
-    PasswordRequired,
 )
 
 if TYPE_CHECKING:
@@ -27,13 +22,13 @@ if TYPE_CHECKING:
 
 
 def a32_to_str(a: list[int]) -> bytes:
-    return struct.pack(">%dI" % len(a), *a)
+    return struct.pack(f">{len(a)}I", *a)
 
 
 def str_to_a32(s: bytes) -> list[int]:
     if len(s) % 4:
         s += b"\x00" * (4 - len(s) % 4)
-    return list(struct.unpack(">%dI" % (len(s) // 4), s))
+    return list(struct.unpack(f">{len(s) // 4}I", s))
 
 
 def base64_url_decode(data: str) -> bytes:
@@ -78,7 +73,7 @@ class MegaExtractor(BaseExtractor):
 
     def __init__(self, http_client: HTTPClient):
         super().__init__(http_client)
-        self._session_id: Optional[str] = None
+        self._session_id: str | None = None
         self._sequence_num = random.randint(0, 0xFFFFFFFF)
 
     def _derive_key(self, key_a32: list[int]) -> list[int]:
@@ -92,13 +87,13 @@ class MegaExtractor(BaseExtractor):
         return key_a32[:4]
 
     @classmethod
-    def extract_id(cls, url: str) -> Optional[str]:
+    def extract_id(cls, url: str) -> str | None:
         match = cls.URL_PATTERN.match(url)
         if match:
             return match.group("id") or match.group("legacy_id")
         return None
 
-    def _extract_key(self, url: str) -> Optional[str]:
+    def _extract_key(self, url: str) -> str | None:
         match = self.URL_PATTERN.match(url)
         if match:
             return match.group("key") or match.group("legacy_key")
@@ -113,11 +108,11 @@ class MegaExtractor(BaseExtractor):
         return False
 
     async def _api_request(
-        self, data: list[dict[str, Any]], query_params: Optional[dict[str, str]] = None
+        self, data: list[dict[str, Any]], query_params: dict[str, str] | None = None
     ) -> Any:
         params = {"id": self._sequence_num}
         if query_params:
-            params.update(query_params)
+            params.update(query_params)  # type: ignore[arg-type]  # dict[str,str] compatible
         self._sequence_num += 1
 
         async with await self.http.post(
@@ -211,7 +206,7 @@ class MegaExtractor(BaseExtractor):
         iv_bytes = a32_to_str([key[4], key[5], 0, 0])
         return key_bytes, iv_bytes
 
-    async def extract(self, url: str, password: Optional[str] = None) -> list[FileInfo]:
+    async def extract(self, url: str, password: str | None = None) -> list[FileInfo]:
         file_id = self.extract_id(url)
         file_key = self._extract_key(url)
 
@@ -274,9 +269,7 @@ class MegaExtractor(BaseExtractor):
 
         return files
 
-    async def extract_folder(
-        self, url: str, password: Optional[str] = None
-    ) -> Optional[FolderInfo]:
+    async def extract_folder(self, url: str, password: str | None = None) -> FolderInfo | None:
         if not self._is_folder(url):
             return None
 

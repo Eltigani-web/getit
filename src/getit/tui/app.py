@@ -5,13 +5,12 @@ import os
 import shutil
 import sys
 from pathlib import Path
-from typing import Optional
 
 from rich.text import Text
 from textual import on, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Container, Horizontal, Vertical
+from textual.containers import Container, Horizontal
 from textual.screen import ModalScreen
 from textual.widgets import (
     Button,
@@ -20,7 +19,6 @@ from textual.widgets import (
     Header,
     Input,
     Label,
-    ProgressBar,
     Static,
     Switch,
 )
@@ -83,7 +81,7 @@ PROGRESS_EMPTY = "░" if UNICODE_SUPPORT else "-"
 
 MODAL_BASE_CSS = """
     align: center middle;
-    
+
     .modal-dialog {
         width: auto;
         height: auto;
@@ -91,28 +89,29 @@ MODAL_BASE_CSS = """
         background: $surface;
         padding: 1 2;
     }
-    
+
     .modal-dialog Label {
         margin-bottom: 1;
     }
-    
+
     .modal-dialog Input {
         margin-bottom: 1;
     }
-    
+
     .modal-buttons {
         width: 100%;
         height: auto;
         margin-top: 1;
     }
-    
+
     .modal-buttons Button {
         margin-right: 1;
     }
 """
 
 
-def format_size(size: int) -> str:
+def format_size(size_bytes: int) -> str:
+    size: float = float(size_bytes)
     for unit in ["B", "KB", "MB", "GB", "TB"]:
         if size < 1024:
             return f"{size:.1f} {unit}"
@@ -136,12 +135,12 @@ def format_eta(seconds: float) -> str:
     return f"{minutes:02d}:{secs:02d}"
 
 
-class BatchFileScreen(ModalScreen[Optional[tuple[str, Optional[str], Optional[str]]]]):
+class BatchFileScreen(ModalScreen[tuple[str, str | None, str | None] | None]):
     CSS = """
     BatchFileScreen {
         align: center middle;
     }
-    
+
     #batch-dialog {
         width: 70;
         height: auto;
@@ -149,37 +148,37 @@ class BatchFileScreen(ModalScreen[Optional[tuple[str, Optional[str], Optional[st
         background: $surface;
         padding: 1 2;
     }
-    
+
     #batch-dialog Label {
         margin-bottom: 1;
     }
-    
+
     #batch-dialog Input {
         margin-bottom: 1;
     }
-    
+
     #batch-dialog Static {
         margin-bottom: 1;
         color: $text-muted;
     }
-    
+
     .folder-row {
         height: auto;
         margin-bottom: 1;
         align: left middle;
     }
-    
+
     .folder-row Label {
         margin-left: 1;
         margin-bottom: 0;
     }
-    
+
     #batch-buttons {
         width: 100%;
         height: auto;
         margin-top: 1;
     }
-    
+
     #batch-buttons Button {
         margin-right: 1;
     }
@@ -235,7 +234,7 @@ class BatchFileScreen(ModalScreen[Optional[tuple[str, Optional[str], Optional[st
         file_path = file_input.value.strip()
         password = password_input.value.strip() or None
 
-        custom_folder: Optional[str] = None
+        custom_folder: str | None = None
         switch = self.query_one("#custom-folder-switch", Switch)
         if switch.value:
             folder_input = self.query_one("#custom-folder-input", Input)
@@ -254,12 +253,12 @@ class BatchFileScreen(ModalScreen[Optional[tuple[str, Optional[str], Optional[st
         self.on_import()
 
 
-class AddUrlScreen(ModalScreen[Optional[tuple[str, Optional[str]]]]):
+class AddUrlScreen(ModalScreen[tuple[str, str | None] | None]):
     CSS = """
     AddUrlScreen {
         align: center middle;
     }
-    
+
     #dialog {
         width: 60;
         height: auto;
@@ -267,21 +266,21 @@ class AddUrlScreen(ModalScreen[Optional[tuple[str, Optional[str]]]]):
         background: $surface;
         padding: 1 2;
     }
-    
+
     #dialog Label {
         margin-bottom: 1;
     }
-    
+
     #dialog Input {
         margin-bottom: 1;
     }
-    
+
     #buttons {
         width: 100%;
         height: auto;
         margin-top: 1;
     }
-    
+
     #buttons Button {
         margin-right: 1;
     }
@@ -328,7 +327,7 @@ class ErrorDetailsScreen(ModalScreen[None]):
     ErrorDetailsScreen {
         align: center middle;
     }
-    
+
     #error-dialog {
         width: 70;
         height: auto;
@@ -337,16 +336,16 @@ class ErrorDetailsScreen(ModalScreen[None]):
         background: $surface;
         padding: 1 2;
     }
-    
+
     #error-dialog Label {
         margin-bottom: 1;
     }
-    
+
     #error-message {
         margin-bottom: 1;
         color: $error;
     }
-    
+
     #error-buttons {
         width: 100%;
         height: auto;
@@ -358,18 +357,18 @@ class ErrorDetailsScreen(ModalScreen[None]):
         Binding("escape", "close", "Close"),
     ]
 
-    def __init__(self, task: DownloadTask):
+    def __init__(self, download_task: DownloadTask):
         super().__init__()
-        self.task = task
+        self.download_task = download_task
 
     def compose(self) -> ComposeResult:
         with Container(id="error-dialog"):
-            yield Label(f"Error Details: {self.task.file_info.filename[:40]}")
+            yield Label(f"Error Details: {self.download_task.file_info.filename[:40]}")
             yield Static(
-                self.task.progress.error or "Unknown error",
+                self.download_task.progress.error or "Unknown error",
                 id="error-message",
             )
-            yield Static(f"Retries: {self.task.retries}/{self.task.max_retries}")
+            yield Static(f"Retries: {self.download_task.retries}/{self.download_task.max_retries}")
             with Horizontal(id="error-buttons"):
                 yield Button("Retry", variant="primary", id="retry-btn")
                 yield Button("Close", id="close-btn")
@@ -383,9 +382,9 @@ class ErrorDetailsScreen(ModalScreen[None]):
 
     @on(Button.Pressed, "#retry-btn")
     def on_retry(self) -> None:
-        self.task.progress.status = DownloadStatus.PENDING
-        self.task.progress.error = None
-        self.task.retries = 0
+        self.download_task.progress.status = DownloadStatus.PENDING
+        self.download_task.progress.error = None
+        self.download_task.retries = 0
         self.dismiss(None)
 
 
@@ -394,7 +393,7 @@ class SettingsScreen(ModalScreen[None]):
     SettingsScreen {
         align: center middle;
     }
-    
+
     #settings-dialog {
         width: 65;
         height: auto;
@@ -402,24 +401,24 @@ class SettingsScreen(ModalScreen[None]):
         background: $surface;
         padding: 1 2;
     }
-    
+
     #settings-dialog Label {
         margin-bottom: 1;
     }
-    
+
     #settings-dialog Input {
         margin-bottom: 1;
     }
-    
+
     .setting-row {
         height: auto;
         margin-bottom: 1;
     }
-    
+
     .setting-label {
         width: 25;
     }
-    
+
     #settings-buttons {
         width: 100%;
         height: auto;
@@ -541,35 +540,35 @@ class GetItApp(App):
     Screen {
         background: $surface;
     }
-    
+
     #main-container {
         height: 100%;
         padding: 1;
     }
-    
+
     #controls {
         dock: top;
         height: 3;
         padding: 0 1;
         background: $panel;
     }
-    
+
     #controls Button {
         margin-right: 1;
     }
-    
+
     #downloads-table {
         height: 1fr;
         border: solid $primary;
     }
-    
+
     #status-bar {
         dock: bottom;
         height: 1;
         background: $panel;
         padding: 0 1;
     }
-    
+
     .progress-cell {
         width: 100%;
     }
@@ -602,9 +601,9 @@ class GetItApp(App):
     def __init__(self):
         super().__init__()
         self.settings = get_settings()
-        self.manager: Optional[DownloadManager] = None
+        self.manager: DownloadManager | None = None
         self.tasks: dict[str, DownloadTask] = {}
-        self._update_timer: Optional[asyncio.Task] = None
+        self._update_timer: asyncio.Task | None = None
         self._term_width: int = 100
         self._datatable_column_keys: dict[str, object] = {}
 
@@ -708,13 +707,13 @@ class GetItApp(App):
                 eta_key = self._datatable_column_keys.get("ETA")
 
                 if progress_key:
-                    table.update_cell(task_id, progress_key, f"{progress_bar} {progress_pct}")
+                    table.update_cell(task_id, progress_key, f"{progress_bar} {progress_pct}")  # type: ignore[arg-type]  # Textual DataTable stubs incomplete
                 if status_key:
-                    table.update_cell(task_id, status_key, Text(status_text, style=style))
+                    table.update_cell(task_id, status_key, Text(status_text, style=style))  # type: ignore[arg-type]  # Textual DataTable stubs incomplete
                 if self._term_width >= 80 and speed_key:
-                    table.update_cell(task_id, speed_key, speed)
+                    table.update_cell(task_id, speed_key, speed)  # type: ignore[arg-type]  # Textual DataTable stubs incomplete
                 if self._term_width >= 100 and eta_key:
-                    table.update_cell(task_id, eta_key, eta)
+                    table.update_cell(task_id, eta_key, eta)  # type: ignore[arg-type]  # Textual DataTable stubs incomplete
             except Exception:
                 pass
 
@@ -730,7 +729,7 @@ class GetItApp(App):
         status_bar.update_status(total, active, completed, failed, total_speed)
 
     def action_toggle_dark(self) -> None:
-        self.dark = not self.dark
+        self.dark = not self.dark  # type: ignore[has-type]  # Textual reactive property
 
     def action_refresh(self) -> None:
         self._update_table()
@@ -774,8 +773,8 @@ class GetItApp(App):
     async def _import_from_file(
         self,
         file_path: str,
-        password: Optional[str] = None,
-        custom_folder: Optional[str] = None,
+        password: str | None = None,
+        custom_folder: str | None = None,
     ) -> None:
         try:
             urls = self._parse_url_file(file_path)
@@ -791,7 +790,9 @@ class GetItApp(App):
             success_count = 0
             for url in urls:
                 try:
-                    await self._add_download(url, password, batch_output_dir)
+                    await self._add_download(  # type: ignore[misc]  # Textual Worker
+                        url, password, batch_output_dir
+                    )
                     success_count += 1
                 except Exception:
                     pass
@@ -804,7 +805,7 @@ class GetItApp(App):
         except Exception as e:
             self.notify(f"Error reading file: {e}", severity="error")
 
-    def _parse_url_file(self, file_path: str) -> Optional[list[str]]:
+    def _parse_url_file(self, file_path: str) -> list[str] | None:
         path = Path(file_path)
         if not path.exists():
             self.notify(f"File not found: {file_path}", severity="error")
@@ -814,7 +815,7 @@ class GetItApp(App):
             self.notify(f"Not a file: {file_path}", severity="error")
             return None
 
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             lines = f.readlines()
 
         urls = [
@@ -829,7 +830,7 @@ class GetItApp(App):
 
         return urls
 
-    def _create_batch_folder(self, custom_folder: Optional[str]) -> Optional[Path]:
+    def _create_batch_folder(self, custom_folder: str | None) -> Path | None:
         if not custom_folder:
             return None
 
@@ -877,8 +878,8 @@ class GetItApp(App):
     async def _add_download(
         self,
         url: str,
-        password: Optional[str] = None,
-        output_dir: Optional[Path] = None,
+        password: str | None = None,
+        output_dir: Path | None = None,
     ) -> None:
         if not self.manager:
             return
@@ -924,7 +925,7 @@ class GetItApp(App):
         else:
             self.notify(f"Failed: {task.file_info.filename}", severity="error")
 
-    def _get_selected_task(self) -> Optional[DownloadTask]:
+    def _get_selected_task(self) -> DownloadTask | None:
         table = self.query_one("#downloads-table", DataTable)
         if table.cursor_row is None:
             return None

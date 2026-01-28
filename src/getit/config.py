@@ -2,7 +2,6 @@
 
 import json
 from pathlib import Path
-from typing import Optional
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -41,7 +40,7 @@ def load_config() -> dict:
     config_path = get_config_file_path()
     if config_path.exists():
         try:
-            with open(config_path, "r", encoding="utf-8") as f:
+            with open(config_path, encoding="utf-8") as f:
                 data = json.load(f)
                 # Convert path strings back to Path objects
                 if "download_dir" in data and isinstance(data["download_dir"], str):
@@ -70,16 +69,16 @@ class Settings(BaseSettings):
     max_retries: int = Field(default=3, ge=0, le=10)
     retry_delay: float = Field(default=1.0, ge=0.0)
     timeout: float = Field(default=30.0, ge=5.0)
-    speed_limit: Optional[int] = Field(default=None)  # bytes/sec, None = unlimited
+    speed_limit: int | None = Field(default=None)  # bytes/sec, None = unlimited
 
     # Resume settings
     enable_resume: bool = Field(default=True)
 
     # API settings
-    gofile_token: Optional[str] = Field(default=None)
-    pixeldrain_api_key: Optional[str] = Field(default=None)
-    mega_email: Optional[str] = Field(default=None)
-    mega_password: Optional[str] = Field(default=None)
+    gofile_token: str | None = Field(default=None)
+    pixeldrain_api_key: str | None = Field(default=None)
+    mega_email: str | None = Field(default=None)
+    mega_password: str | None = Field(default=None)
 
     # TUI settings
     show_speed: bool = Field(default=True)
@@ -91,7 +90,7 @@ class Settings(BaseSettings):
 
     # Paths
     config_dir: Path = Field(default_factory=get_default_config_dir)
-    history_db: Optional[Path] = Field(default=None)
+    history_db: Path | None = Field(default=None)
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -118,7 +117,7 @@ def save_config(settings: Settings) -> None:
 
 
 # Global settings instance
-_settings: Optional[Settings] = None
+_settings: Settings | None = None
 
 
 def get_settings() -> Settings:

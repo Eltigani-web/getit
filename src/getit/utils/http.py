@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING, Any, Optional, Callable, Coroutine
+import random
+from collections.abc import Awaitable, Callable
+from typing import TYPE_CHECKING, Any
 
 import aiohttp
 from aiolimiter import AsyncLimiter
@@ -10,13 +12,21 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
 
+class RateLimitError(Exception):
+    """Raised when rate limited (429) and retries exhausted."""
+
+    def __init__(self, message: str, retry_after: float | None = None):
+        super().__init__(message)
+        self.retry_after = retry_after
+
+
 class HTTPClient:
     def __init__(
         self,
         requests_per_second: float = 10.0,
         timeout_connect: float = 30.0,
         timeout_sock_read: float = 300.0,
-        timeout_total: Optional[float] = None,
+        timeout_total: float | None = None,
         max_retries: int = 3,
     ):
         self._requests_per_second = requests_per_second
@@ -28,7 +38,7 @@ class HTTPClient:
         )
         self._max_retries = max_retries
         self._limiter = AsyncLimiter(requests_per_second, 1.0)
-        self._session: Optional[aiohttp.ClientSession] = None
+        self._session: aiohttp.ClientSession | None = None
         self._headers = {
             "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
             "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -44,38 +54,62 @@ class HTTPClient:
     async def __aexit__(self, *args: Any) -> None:
         await self.close()
 
+    def _calculate_backoff(self, attempt: int, retry_after: float | None = None) -> float:
+        if retry_after is not None:
+            return min(retry_after, 60.0)
+        base_delay = 2**attempt
+        jitter = random.uniform(0, 0.5)
+        return min(base_delay + jitter, 60.0)
+
+    def _parse_retry_after(self, response: aiohttp.ClientResponse) -> float | None:
+        retry_after = response.headers.get("Retry-After")
+        if retry_after:
+            try:
+                return float(retry_after)
+            except ValueError:
+                pass
+        return None
+
+    def _is_rate_limited(self, error: Exception) -> bool:
+        if isinstance(error, aiohttp.ClientResponseError):
+            return error.status == 429
+        error_str = str(error).lower()
+        return "429" in error_str or "too many requests" in error_str
+
     async def _with_retry(
         self,
-        coro: Coroutine[Any, Any],
+        coro: Awaitable[Any],
         is_retryable_exception: Callable[[Any], bool],
     ) -> Any:
-        """Execute coroutine with retry logic and exponential backoff.
-
-        Retry on exceptions that match is_retryable_exception callback.
-        Use exponential backoff: 2**attempt seconds
-        Respect max_retries setting
-
-        Args:
-            coro: Coroutine to retry
-            is_retryable_exception: Function to check if exception should be retried
-
-        Returns:
-            Result from coro or raises exception after all retries exhausted
-        """
         for attempt in range(self._max_retries + 1):
             try:
-                result = await coro()
-                if attempt < self._max_retries:
-                    return result
+                result = await coro
                 return result
+            except aiohttp.ClientResponseError as e:
+                if e.status == 429:
+                    if attempt < self._max_retries:
+                        backoff = self._calculate_backoff(attempt)
+                        await asyncio.sleep(backoff)
+                        continue
+                    raise RateLimitError(
+                        f"Rate limited after {self._max_retries} retries", None
+                    ) from e
+                if not is_retryable_exception(e):
+                    raise
+                if attempt < self._max_retries:
+                    backoff = self._calculate_backoff(attempt)
+                    await asyncio.sleep(backoff)
+                    continue
+                raise Exception(f"Request failed after {self._max_retries} retries: {e}") from e
             except Exception as e:
                 if not is_retryable_exception(e):
                     raise
                 if attempt < self._max_retries:
-                    backoff = 2**attempt
+                    backoff = self._calculate_backoff(attempt)
                     await asyncio.sleep(backoff)
                     continue
-                raise Exception(f"Request failed after {self._max_retries} retries: {e}")
+                raise Exception(f"Request failed after {self._max_retries} retries: {e}") from e
+        raise Exception(f"Request failed after {self._max_retries} retries")
 
     async def start(self) -> None:
         if self._session is None or self._session.closed:
@@ -107,9 +141,9 @@ class HTTPClient:
     async def get(
         self,
         url: str,
-        headers: Optional[dict[str, str]] = None,
-        params: Optional[dict[str, Any]] = None,
-        cookies: Optional[dict[str, str]] = None,
+        headers: dict[str, str] | None = None,
+        params: dict[str, Any] | None = None,
+        cookies: dict[str, str] | None = None,
     ) -> aiohttp.ClientResponse:
         return await self._with_retry(
             self.session.get(url, headers=headers, params=params, cookies=cookies),
@@ -119,11 +153,11 @@ class HTTPClient:
     async def post(
         self,
         url: str,
-        data: Optional[dict[str, Any]] = None,
-        json: Optional[Any] = None,
-        headers: Optional[dict[str, str]] = None,
-        cookies: Optional[dict[str, str]] = None,
-        params: Optional[dict[str, Any]] = None,
+        data: dict[str, Any] | None = None,
+        json: Any | None = None,
+        headers: dict[str, str] | None = None,
+        cookies: dict[str, str] | None = None,
+        params: dict[str, Any] | None = None,
     ) -> aiohttp.ClientResponse:
         return await self._with_retry(
             self.session.post(
@@ -135,54 +169,69 @@ class HTTPClient:
     async def get_json(
         self,
         url: str,
-        headers: Optional[dict[str, str]] = None,
-        params: Optional[dict[str, Any]] = None,
-        cookies: Optional[dict[str, str]] = None,
+        headers: dict[str, str] | None = None,
+        params: dict[str, Any] | None = None,
+        cookies: dict[str, str] | None = None,
     ) -> dict[str, Any]:
+        async def do_request() -> dict[str, Any]:
+            async with self.session.get(
+                url, headers=headers, params=params, cookies=cookies
+            ) as resp:
+                resp.raise_for_status()
+                return await resp.json()
+
         return await self._with_retry(
-            self.session.get(url, headers=headers, params=params, cookies=cookies).json(),
+            do_request(),
             lambda e: isinstance(e, (aiohttp.ClientError, asyncio.TimeoutError)),
         )
 
     async def get_text(
         self,
         url: str,
-        headers: Optional[dict[str, str]] = None,
-        params: Optional[dict[str, Any]] = None,
-        cookies: Optional[dict[str, str]] = None,
+        headers: dict[str, str] | None = None,
+        params: dict[str, Any] | None = None,
+        cookies: dict[str, str] | None = None,
     ) -> str:
+        async def do_request() -> str:
+            async with self.session.get(
+                url, headers=headers, params=params, cookies=cookies
+            ) as resp:
+                resp.raise_for_status()
+                return await resp.text()
+
         return await self._with_retry(
-            self.session.get(url, headers=headers, params=params, cookies=cookies).text(),
+            do_request(),
             lambda e: isinstance(e, (aiohttp.ClientError, asyncio.TimeoutError)),
         )
 
     async def download_stream(
         self,
         url: str,
-        headers: Optional[dict[str, str]] = None,
-        cookies: Optional[dict[str, str]] = None,
+        headers: dict[str, str] | None = None,
+        cookies: dict[str, str] | None = None,
         chunk_size: int = 1024 * 1024,
     ) -> AsyncIterator[tuple[bytes, int, int]]:
-        async with self._limiter:
-            async with self.session.get(url, headers=headers, cookies=cookies) as resp:
-                resp.raise_for_status()
-                total = int(resp.headers.get("content-length", 0))
-                downloaded = 0
-                async for chunk in resp.content.iter_chunked(chunk_size):
-                    downloaded += len(chunk)
-                    yield chunk, downloaded, total
+        async with self._limiter, self.session.get(url, headers=headers, cookies=cookies) as resp:
+            resp.raise_for_status()
+            total = int(resp.headers.get("content-length", 0))
+            downloaded = 0
+            async for chunk in resp.content.iter_chunked(chunk_size):
+                downloaded += len(chunk)
+                yield chunk, downloaded, total
 
     async def get_file_info(
         self,
         url: str,
-        headers: Optional[dict[str, str]] = None,
-    ) -> tuple[int, bool, Optional[str]]:
-        async with self._limiter:
-            async with self.session.head(url, headers=headers, allow_redirects=True) as resp:
-                content_length = int(resp.headers.get("content-length", 0))
-                accept_ranges = resp.headers.get("accept-ranges", "").lower() == "bytes"
-                content_disposition = resp.headers.get("content-disposition")
-                return content_length, accept_ranges, content_disposition
+        headers: dict[str, str] | None = None,
+    ) -> tuple[int, bool, str | None]:
+        async with (
+            self._limiter,
+            self.session.head(url, headers=headers, allow_redirects=True) as resp,
+        ):
+            content_length = int(resp.headers.get("content-length", 0))
+            accept_ranges = resp.headers.get("accept-ranges", "").lower() == "bytes"
+            content_disposition = resp.headers.get("content-disposition")
+            return content_length, accept_ranges, content_disposition
 
     def update_cookies(self, cookies: dict[str, str], domain: str = "") -> None:
         for name, value in cookies.items():

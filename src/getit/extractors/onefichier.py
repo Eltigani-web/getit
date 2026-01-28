@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
-from typing import TYPE_CHECKING, ClassVar, Optional
+from typing import TYPE_CHECKING, ClassVar
 
 from bs4 import BeautifulSoup
 
@@ -16,6 +17,8 @@ from getit.extractors.base import (
 
 if TYPE_CHECKING:
     from getit.utils.http import HTTPClient
+
+logger = logging.getLogger(__name__)
 
 
 class OneFichierExtractor(BaseExtractor):
@@ -59,13 +62,10 @@ class OneFichierExtractor(BaseExtractor):
     def can_handle(cls, url: str) -> bool:
         if cls.URL_PATTERN.match(url) or cls.ALT_PATTERN.match(url):
             return True
-        for domain in cls.SUPPORTED_DOMAINS:
-            if domain in url:
-                return True
-        return False
+        return any(domain in url for domain in cls.SUPPORTED_DOMAINS)
 
     @classmethod
-    def extract_id(cls, url: str) -> Optional[str]:
+    def extract_id(cls, url: str) -> str | None:
         match = cls.URL_PATTERN.match(url)
         if match:
             return match.group("id")
@@ -80,7 +80,7 @@ class OneFichierExtractor(BaseExtractor):
                 return part
         return None
 
-    async def _get_download_page(self, url: str, password: Optional[str] = None) -> str:
+    async def _get_download_page(self, url: str, password: str | None = None) -> str:
         headers = {"Cookie": "LG=en"}
         text = await self.http.get_text(url, headers=headers)
         return text
@@ -90,7 +90,7 @@ class OneFichierExtractor(BaseExtractor):
         url: str,
         form_action: str,
         form_data: dict[str, str],
-        password: Optional[str] = None,
+        password: str | None = None,
     ) -> str:
         if password:
             form_data["pass"] = password
@@ -108,8 +108,8 @@ class OneFichierExtractor(BaseExtractor):
             return await resp.text()
 
     async def _parse_page(
-        self, html: str, url: str, password: Optional[str] = None
-    ) -> tuple[Optional[str], Optional[str], int]:
+        self, html: str, url: str, password: str | None = None
+    ) -> tuple[str | None, str | None, int]:
         soup = BeautifulSoup(html, "lxml")
 
         if self.TEMP_OFFLINE_PATTERN.search(html):
@@ -138,10 +138,11 @@ class OneFichierExtractor(BaseExtractor):
                 logger.warning(f"Wait time too long ({wait_time}s), skipping")
                 raise ExtractorError(f"Wait time too long ({wait_time}s), try again later")
 
-        direct_link = None
+        direct_link: str | None = None
         link_tag = soup.find("a", {"class": "ok"})
         if link_tag:
-            direct_link = link_tag.get("href")
+            href = link_tag.get("href")
+            direct_link = str(href) if href else None
 
         if not direct_link:
             link_match = re.search(
@@ -166,13 +167,14 @@ class OneFichierExtractor(BaseExtractor):
 
         return direct_link, filename, size
 
-    async def extract(self, url: str, password: Optional[str] = None) -> list[FileInfo]:
+    async def extract(self, url: str, password: str | None = None) -> list[FileInfo]:
         html = await self._get_download_page(url, password)
         soup = BeautifulSoup(html, "lxml")
 
         form = soup.find("form", {"method": "post"})
         if form:
-            form_action = form.get("action", url)
+            form_action_raw = form.get("action", url)
+            form_action = str(form_action_raw) if form_action_raw else url
             if not form_action.startswith("http"):
                 form_action = url
 
@@ -181,7 +183,7 @@ class OneFichierExtractor(BaseExtractor):
                 name = inp.get("name")
                 value = inp.get("value", "")
                 if name:
-                    form_data[name] = value
+                    form_data[str(name)] = str(value)
 
             html = await self._submit_form(url, form_action, form_data, password)
 
