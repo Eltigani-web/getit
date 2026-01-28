@@ -7,6 +7,11 @@ from getit.extractors.base import BaseExtractor, ExtractorError
 from getit.utils.http import HTTPClient
 
 
+class DummyExtractor(BaseExtractor):
+    def extract(self, *args, **kwargs):
+        return None
+
+
 class TestExtractorErrorHandling:
     def test_extractor_error_has_message(self):
         """ExtractorError stores error message."""
@@ -21,7 +26,7 @@ class TestExtractorErrorHandling:
     def test_base_extractor_is_abstract(self):
         """BaseExtractor cannot be instantiated directly."""
         with pytest.raises(TypeError):
-            BaseExtractor(MagicMock())
+            DummyExtractor(MagicMock())
 
     def test_extractor_error_inherits_from_exception(self):
         """ExtractorError is an Exception subclass."""
