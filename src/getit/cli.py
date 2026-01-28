@@ -218,7 +218,7 @@ def download(
                 # Oracle recommended this over complex concurrent refactoring
                 # Correctness prioritized over speed - sequential downloads work correctly
                 # TODO: Revisit concurrency if performance becomes bottleneck
-                results = []
+                results: list[DownloadResult] = []
                 for task in all_tasks:
                     result = await manager.download_task(task, on_progress=tracker.update)
                     results.append(result)
