@@ -145,9 +145,3 @@ We welcome contributions!
 ## 📄 License
 
 This project is licensed under the GNU General Public License v3.0 - see the [LICENSE](LICENSE) file for details.
-
----
-
-<p align="center">
-  Made with ❤️ by <a href="https://github.com/ahmedeltigani">Ahmed Eltigani</a>
-</p>
