@@ -22,7 +22,7 @@ from rich.table import Table
 from getit import __version__
 from getit.config import get_settings
 from getit.core.downloader import DownloadTask
-from getit.core.manager import DownloadManager
+from getit.core.manager import DownloadManager, DownloadResult
 from getit.extractors.base import FileInfo
 
 app = typer.Typer(
