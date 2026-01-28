@@ -147,7 +147,7 @@ The CI workflow (`.github/workflows/ci.yml`) includes:
 
 ### Test Framework
 - **Framework:** pytest 9.0.2
-- **Plugins:** pytest-asyncio 1.3.0, pytest-cov 7.0.0, pytest-anyio 4.12.1
+- **Plugins:** pytest-asyncio 1.3.0, pytest-cov 7.0.0
 - **Configuration:** `pyproject.toml` with test paths set to `tests/`
 
 ---
