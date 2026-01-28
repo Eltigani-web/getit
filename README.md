@@ -9,6 +9,7 @@
   <a href="https://github.com/Eltigani-web/getit/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-GPLv3-blue.svg" alt="License: GPLv3"></a>
   <a href="https://python.org"><img src="https://img.shields.io/badge/Python-3.10+-blue.svg" alt="Python 3.10+"></a>
   <a href="https://github.com/Eltigani-web/getit/actions"><img src="https://github.com/Eltigani-web/getit/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://coderabbit.ai"><img src="https://img.shields.io/coderabbit/prs/github/Eltigani-web/getit?utm_source=oss&utm_medium=github&utm_campaign=Eltigani-web%2Fgetit&labelColor=171717&color=FF570A&link=https%3A%2F%2Fcoderabbit.ai&label=CodeRabbit+Reviews" alt="CodeRabbit Pull Request Reviews"></a>
 </p>
 
 <p align="center">
