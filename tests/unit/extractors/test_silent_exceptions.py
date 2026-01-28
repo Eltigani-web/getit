@@ -1,10 +1,10 @@
 """Tests for extractor error handling."""
 
-import pytest
 from unittest.mock import MagicMock
 
+import pytest
+
 from getit.extractors.base import BaseExtractor, ExtractorError
-from getit.utils.http import HTTPClient
 
 
 class DummyExtractor(BaseExtractor):
