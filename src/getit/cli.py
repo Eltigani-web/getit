@@ -22,7 +22,7 @@ from rich.table import Table
 from getit import __version__
 from getit.config import get_settings
 from getit.core.downloader import DownloadTask
-from getit.core.manager import DownloadManager, DownloadResult
+from getit.core.manager import DownloadManager
 from getit.extractors.base import FileInfo
 
 app = typer.Typer(
@@ -218,6 +218,7 @@ def download(
                 # Oracle recommended this over complex concurrent refactoring
                 # Correctness prioritized over speed - sequential downloads work correctly
                 # TODO: Revisit concurrency if performance becomes bottleneck
+                results = []
                 for task in all_tasks:
                     result = await manager.download_task(task, on_progress=tracker.update)
                     results.append(result)
