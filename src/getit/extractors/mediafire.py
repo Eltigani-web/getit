@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import base64
+import hashlib
+import logging
 import re
 from typing import TYPE_CHECKING, ClassVar
 
@@ -14,9 +16,12 @@ from getit.extractors.base import (
     NotFound,
     parse_size_string,
 )
+from getit.utils.pacer import Pacer
 
 if TYPE_CHECKING:
     from getit.utils.http import HTTPClient
+
+logger = logging.getLogger(__name__)
 
 
 class MediaFireExtractor(BaseExtractor):
@@ -32,8 +37,18 @@ class MediaFireExtractor(BaseExtractor):
 
     API_URL = "https://www.mediafire.com/api/1.5"
 
+    CAPTCHA_PATTERNS: ClassVar[list[str]] = [
+        r"solvemedia",
+        r"recaptcha",
+        r"hcaptcha",
+        r"captcha",
+        r"challenge",
+        r"verification",
+    ]
+
     def __init__(self, http_client: HTTPClient):
         super().__init__(http_client)
+        self._pacer = Pacer(min_backoff=0.4, max_backoff=5.0, flood_sleep=30.0)
 
     @classmethod
     def can_handle(cls, url: str) -> bool:
@@ -66,8 +81,12 @@ class MediaFireExtractor(BaseExtractor):
             text = await self.http.get_text(url)
             soup = BeautifulSoup(text, "lxml")
 
-            if "solvemedia" in text.lower() or "recaptcha" in text.lower():
-                raise ExtractorError("CAPTCHA required - cannot proceed automatically")
+            for pattern in self.CAPTCHA_PATTERNS:
+                if re.search(pattern, text, re.IGNORECASE):
+                    raise ExtractorError("CAPTCHA required - cannot proceed automatically")
+
+            if self._pacer.detect_flood_ip_lock(text):
+                await self._pacer.handle_flood_ip_lock()
 
             download_btn = soup.find("a", {"id": "downloadButton"})
             if download_btn:
@@ -136,34 +155,47 @@ class MediaFireExtractor(BaseExtractor):
         if self._is_folder(url):
             return await self._extract_folder_files(file_id)
 
-        api_info = await self._get_file_info_api(file_id)
-        if api_info:
-            return [
-                FileInfo(
-                    url=url,
-                    filename=api_info.get("filename", "unknown"),
-                    size=int(api_info.get("size", 0)),
-                    direct_url=api_info.get("links", {}).get("normal_download"),
-                    extractor_name=self.EXTRACTOR_NAME,
-                    checksum=api_info.get("hash"),
-                    checksum_type="sha256" if api_info.get("hash") else None,
-                )
-            ]
+        max_retries = 3
+        self._pacer.reset()
 
-        result = await self._get_direct_link_html(url)
-        if result:
-            direct_url, filename, size = result
-            return [
-                FileInfo(
-                    url=url,
-                    filename=filename,
-                    size=size,
-                    direct_url=direct_url,
-                    extractor_name=self.EXTRACTOR_NAME,
-                )
-            ]
+        for attempt in range(max_retries + 1):
+            try:
+                api_info = await self._get_file_info_api(file_id)
+                if api_info:
+                    return [
+                        FileInfo(
+                            url=url,
+                            filename=api_info.get("filename", "unknown"),
+                            size=int(api_info.get("size", 0)),
+                            direct_url=api_info.get("links", {}).get("normal_download"),
+                            extractor_name=self.EXTRACTOR_NAME,
+                            checksum=api_info.get("hash"),
+                            checksum_type="sha256" if api_info.get("hash") else None,
+                        )
+                    ]
 
-        raise NotFound(f"Could not extract download link from {url}")
+                result = await self._get_direct_link_html(url)
+                if result:
+                    direct_url, filename, size = result
+                    return [
+                        FileInfo(
+                            url=url,
+                            filename=filename,
+                            size=size,
+                            direct_url=direct_url,
+                            extractor_name=self.EXTRACTOR_NAME,
+                        )
+                    ]
+
+                raise NotFound(f"Could not extract download link from {url}")
+            except (ExtractorError, NotFound):
+                raise
+            except Exception as e:
+                if attempt == max_retries:
+                    raise ExtractorError(f"Failed after {max_retries} retries: {e}") from e
+
+                await self._pacer.sleep(attempt)
+                logger.info(f"Retrying MediaFire extraction (attempt {attempt + 1}/{max_retries})")
 
     async def _extract_folder_files(self, folder_key: str) -> list[FileInfo]:
         folder_files = await self._get_folder_contents(folder_key)
@@ -188,3 +220,37 @@ class MediaFireExtractor(BaseExtractor):
         folder = FolderInfo(url=url, name=folder_key)
         folder.files = await self._extract_folder_files(folder_key)
         return folder
+
+    def verify_hash(self, file_path: str, expected_hash: str, hash_type: str = "sha256") -> bool:
+        """
+        Verify file hash matches expected value.
+
+        Args:
+            file_path: Path to file to verify
+            expected_hash: Expected hash value
+            hash_type: Hash algorithm (md5 or sha256)
+
+        Returns:
+            True if hash matches, False otherwise
+        """
+        try:
+            hash_func = hashlib.md5 if hash_type.lower() == "md5" else hashlib.sha256
+
+            with open(file_path, "rb") as f:
+                file_hash = hash_func()
+                while chunk := f.read(8192):
+                    file_hash.update(chunk)
+
+            actual_hash = file_hash.hexdigest()
+            is_valid = actual_hash.lower() == expected_hash.lower()
+
+            if not is_valid:
+                logger.warning(
+                    f"Hash verification failed for {file_path}: "
+                    f"expected {expected_hash}, got {actual_hash}"
+                )
+
+            return is_valid
+        except Exception as e:
+            logger.error(f"Hash verification error for {file_path}: {e}")
+            return False

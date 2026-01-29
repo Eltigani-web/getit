@@ -14,6 +14,7 @@ from getit.extractors.base import (
     PasswordRequired,
     parse_size_string,
 )
+from getit.utils.pacer import Pacer
 
 if TYPE_CHECKING:
     from getit.utils.http import HTTPClient
@@ -54,9 +55,16 @@ class OneFichierExtractor(BaseExtractor):
     WAIT_PATTERN: ClassVar[re.Pattern[str]] = re.compile(
         r"(?:countdown|wait|must wait)\D*(\d+)\s*(?:minutes?|seconds?|min|sec)?", re.I
     )
+    FLOOD_PATTERNS: ClassVar[list[str]] = [
+        r"ip\s*(?:address)?\s*(?:has\s+been\s+)?lock",
+        r"too\s+many\s+(?:connection|download|request)",
+        r"download\s+limit\s+(?:reached|exceeded)",
+        r"flood\s+control",
+    ]
 
     def __init__(self, http_client: HTTPClient):
         super().__init__(http_client)
+        self._pacer = Pacer(min_backoff=0.4, max_backoff=5.0, flood_sleep=30.0)
 
     @classmethod
     def can_handle(cls, url: str) -> bool:
@@ -126,12 +134,15 @@ class OneFichierExtractor(BaseExtractor):
             if password_input:
                 raise PasswordRequired()
 
+        if self._pacer.detect_flood_ip_lock(html):
+            await self._pacer.handle_flood_ip_lock()
+
         wait_match = self.WAIT_PATTERN.search(html)
         if wait_match:
             wait_time = int(wait_match.group(1))
             if "minute" in html.lower()[wait_match.start() : wait_match.end() + 20]:
                 wait_time *= 60
-            if 0 < wait_time < 60:
+            if 0 < wait_time < 300:
                 await asyncio.sleep(wait_time + 1)
                 logger.info(f"Waiting {wait_time}s as required by 1Fichier")
             else:
@@ -168,36 +179,49 @@ class OneFichierExtractor(BaseExtractor):
         return direct_link, filename, size
 
     async def extract(self, url: str, password: str | None = None) -> list[FileInfo]:
-        html = await self._get_download_page(url, password)
-        soup = BeautifulSoup(html, "lxml")
+        max_retries = 3
+        self._pacer.reset()
 
-        form = soup.find("form", {"method": "post"})
-        if form:
-            form_action_raw = form.get("action", url)
-            form_action = str(form_action_raw) if form_action_raw else url
-            if not form_action.startswith("http"):
-                form_action = url
+        for attempt in range(max_retries + 1):
+            try:
+                html = await self._get_download_page(url, password)
+                soup = BeautifulSoup(html, "lxml")
 
-            form_data: dict[str, str] = {}
-            for inp in form.find_all("input"):
-                name = inp.get("name")
-                value = inp.get("value", "")
-                if name:
-                    form_data[str(name)] = str(value)
+                form = soup.find("form", {"method": "post"})
+                if form:
+                    form_action_raw = form.get("action", url)
+                    form_action = str(form_action_raw) if form_action_raw else url
+                    if not form_action.startswith("http"):
+                        form_action = url
 
-            html = await self._submit_form(url, form_action, form_data, password)
+                    form_data: dict[str, str] = {}
+                    for inp in form.find_all("input"):
+                        name = inp.get("name")
+                        value = inp.get("value", "")
+                        if name:
+                            form_data[str(name)] = str(value)
 
-        direct_link, filename, size = await self._parse_page(html, url, password)
+                    html = await self._submit_form(url, form_action, form_data, password)
 
-        if not direct_link:
-            raise ExtractorError("Could not extract download link")
+                direct_link, filename, size = await self._parse_page(html, url, password)
 
-        return [
-            FileInfo(
-                url=url,
-                filename=filename or "unknown",
-                size=size,
-                direct_url=direct_link,
-                extractor_name=self.EXTRACTOR_NAME,
-            )
-        ]
+                if not direct_link:
+                    raise ExtractorError("Could not extract download link")
+
+                return [
+                    FileInfo(
+                        url=url,
+                        filename=filename or "unknown",
+                        size=size,
+                        direct_url=direct_link,
+                        extractor_name=self.EXTRACTOR_NAME,
+                    )
+                ]
+            except (ExtractorError, PasswordRequired):
+                raise
+            except Exception as e:
+                if attempt == max_retries:
+                    raise ExtractorError(f"Failed after {max_retries} retries: {e}") from e
+
+                await self._pacer.sleep(attempt)
+                logger.info(f"Retrying 1Fichier extraction (attempt {attempt + 1}/{max_retries})")
