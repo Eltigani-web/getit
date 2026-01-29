@@ -280,12 +280,10 @@ async def wait_for_retry_with_pacer(
             if attempt == max_retries or not is_retryable:
                 return False
 
-            # Handle rate-limited responses
-            response_text = str(e)
+            response_text = e.message or str(e.status or "")
             if await pacer.handle_rate_limited(response_text):
                 continue
 
-            # Standard backoff
             await pacer.sleep()
 
     return False
