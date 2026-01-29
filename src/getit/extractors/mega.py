@@ -240,88 +240,56 @@ class MegaExtractor(BaseExtractor):
         if self._is_folder(url):
             return await self._extract_folder_files(file_id, file_key)
 
-        max_retries = 3
-        self._pacer.reset()
+        file_info = await self._get_file_info(file_id, file_key)
 
-        for attempt in range(max_retries + 1):
+        enc_key, enc_iv = self._build_encryption_params(file_info["key"])
+
+        return [
+            FileInfo(
+                url=url,
+                filename=file_info["name"],
+                size=file_info["size"],
+                direct_url=file_info["download_url"],
+                extractor_name=self.EXTRACTOR_NAME,
+                encryption_key=enc_key,
+                encryption_iv=enc_iv,
+                encrypted=True,
+            )
+        ]
+
+    async def _extract_folder_files(self, folder_id: str, folder_key: str) -> list[FileInfo]:
+        folder_contents = await self._get_folder_contents(folder_id, folder_key)
+        files: list[FileInfo] = []
+
+        for item in folder_contents:
+            key_str = base64_url_encode(a32_to_str(item["key"]))
+
             try:
-                file_info = await self._get_file_info(file_id, file_key)
+                file_url = f"https://mega.nz/file/{item['id']}#{key_str}"
+                data = [{"a": "g", "g": 1, "n": item["id"]}]
+                query_params = {"n": folder_id}
+                result = await self._api_request(data, query_params)
 
-                enc_key, enc_iv = self._build_encryption_params(file_info["key"])
+                download_url = result.get("g", "") if isinstance(result, dict) else ""
 
-                return [
+                enc_key, enc_iv = self._build_encryption_params(item["key"])
+
+                files.append(
                     FileInfo(
-                        url=url,
-                        filename=file_info["name"],
-                        size=file_info["size"],
-                        direct_url=file_info["download_url"],
+                        url=file_url,
+                        filename=item["name"],
+                        size=item["size"],
+                        direct_url=download_url,
                         extractor_name=self.EXTRACTOR_NAME,
                         encryption_key=enc_key,
                         encryption_iv=enc_iv,
                         encrypted=True,
                     )
-                ]
-            except (ExtractorError, NotFound):
-                raise
-            except Exception as e:
-                if attempt == max_retries:
-                    raise ExtractorError(
-                        f"Mega extraction failed after {max_retries} retries: {e}"
-                    ) from e
-
-                await self._pacer.sleep(attempt)
-                logger.info(f"Retrying Mega extraction (attempt {attempt + 1}/{max_retries})")
-
-    async def _extract_folder_files(self, folder_id: str, folder_key: str) -> list[FileInfo]:
-        max_retries = 3
-        self._pacer.reset()
-
-        for attempt in range(max_retries + 1):
-            try:
-                folder_contents = await self._get_folder_contents(folder_id, folder_key)
-                files: list[FileInfo] = []
-
-                for item in folder_contents:
-                    key_str = base64_url_encode(a32_to_str(item["key"]))
-
-                    try:
-                        file_url = f"https://mega.nz/file/{item['id']}#{key_str}"
-                        data = [{"a": "g", "g": 1, "n": item["id"]}]
-                        query_params = {"n": folder_id}
-                        result = await self._api_request(data, query_params)
-
-                        download_url = result.get("g", "") if isinstance(result, dict) else ""
-
-                        enc_key, enc_iv = self._build_encryption_params(item["key"])
-
-                        files.append(
-                            FileInfo(
-                                url=file_url,
-                                filename=item["name"],
-                                size=item["size"],
-                                direct_url=download_url,
-                                extractor_name=self.EXTRACTOR_NAME,
-                                encryption_key=enc_key,
-                                encryption_iv=enc_iv,
-                                encrypted=True,
-                            )
-                        )
-                    except Exception:
-                        continue
-
-                return files
-            except Exception as e:
-                if attempt == max_retries:
-                    raise ExtractorError(
-                        f"Mega folder extraction failed after {max_retries} retries: {e}"
-                    ) from e
-
-                await self._pacer.sleep(attempt)
-                logger.info(
-                    f"Retrying Mega folder extraction (attempt {attempt + 1}/{max_retries})"
                 )
+            except Exception:
+                continue
 
-        return []
+        return files
 
     async def extract_folder(self, url: str, password: str | None = None) -> FolderInfo | None:
         if not self._is_folder(url):

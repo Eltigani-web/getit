@@ -163,18 +163,11 @@ class DownloadHistory:
             )
         """)
 
-        cursor = await self._db.execute(
-            "SELECT 1 FROM schema_versions WHERE version = ?",
+        await self._db.execute(
+            "INSERT OR IGNORE INTO schema_versions (version) VALUES (?)",
             (self.CURRENT_SCHEMA_VERSION,),
         )
-        exists = await cursor.fetchone()
-
-        if not exists:
-            await self._db.execute(
-                "INSERT INTO schema_versions (version) VALUES (?)",
-                (self.CURRENT_SCHEMA_VERSION,),
-            )
-            await self._db.commit()
+        await self._db.commit()
 
     async def get_schema_version(self) -> int:
         """Get current schema version from database.
