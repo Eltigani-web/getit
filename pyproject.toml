@@ -1,10 +1,10 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "setuptools_scm>=8.0"]
 build-backend = "hatchling.build"
 
 [project]
 name = "getit-cli"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Universal file hosting downloader with TUI - supports GoFile, PixelDrain, MediaFire, 1Fichier, Mega.nz"
 readme = "README.md"
 license = "GPL-3.0-or-later"
@@ -72,6 +72,10 @@ getit = "getit.cli:app"
 Homepage = "https://github.com/Eltigani-web/getit"
 Repository = "https://github.com/Eltigani-web/getit"
 Issues = "https://github.com/Eltigani-web/getit/issues"
+
+[tool.hatch.version]
+source = "vcs"
+fallback-version = "0.1.0"
 
 [tool.hatch.build.targets.sdist]
 include = [
