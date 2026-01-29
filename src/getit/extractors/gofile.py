@@ -21,6 +21,10 @@ from getit.extractors.base import (
 if TYPE_CHECKING:
     from getit.utils.http import HTTPClient
 
+from getit.utils.logging import get_logger
+
+logger = get_logger(__name__)
+
 
 class GoFileExtractor(BaseExtractor):
     SUPPORTED_DOMAINS: ClassVar[tuple[str, ...]] = ("gofile.io",)
@@ -189,7 +193,7 @@ class GoFileExtractor(BaseExtractor):
         md5 = file_data.get("md5")
         checksum_type = "md5" if md5 else None
 
-        print(f"[DEBUG] _parse_file: filename={filename}, link={link}, md5={md5}")
+        logger.debug("Parsing file: filename=%s, link=%s, md5=%s", filename, link, md5)
 
         return FileInfo(
             url=link,

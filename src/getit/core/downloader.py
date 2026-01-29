@@ -15,6 +15,10 @@ import aiohttp
 from Cryptodome.Cipher import AES
 from Cryptodome.Util import Counter
 
+from getit.utils.logging import get_logger
+
+logger = get_logger(__name__)
+
 if TYPE_CHECKING:
     from getit.extractors.base import FileInfo
     from getit.utils.http import HTTPClient
@@ -257,7 +261,7 @@ class FileDownloader:
         checksum_type: str,
     ) -> bool:
         """Verify file checksum matches expected value."""
-        print(f"[DEBUG] _verify_file_checksum: file_path={file_path}")
+        logger.debug("Verifying checksum for %s", file_path)
         checksum_type = checksum_type.lower()
         if checksum_type not in self.HASH_ALGORITHMS:
             return True
@@ -269,7 +273,7 @@ class FileDownloader:
                 hasher.update(chunk)
 
         actual = hasher.hexdigest()
-        print(f"[DEBUG] Checksum for {file_path}: expected={expected_checksum}, actual={actual}")
+        logger.debug("Checksum verification - expected=%s, actual=%s", expected_checksum, actual)
         if actual.lower() != expected_checksum.lower():
             raise ChecksumMismatchError(expected_checksum, actual, checksum_type)
 
@@ -393,9 +397,7 @@ class FileDownloader:
         on_progress: ProgressCallback | None,
     ) -> bool:
         """Perform actual file download."""
-        print(
-            f"[DEBUG] _perform_download called: task_id={task.task_id}, output_path={task.output_path}"
-        )
+        logger.debug("Downloading task=%s to %s", task.task_id, task.output_path)
         mode: Literal["ab", "wb"] = "ab" if resume_pos > 0 else "wb"
 
         async with (
@@ -427,7 +429,7 @@ class FileDownloader:
         on_progress: ProgressCallback | None,
     ) -> bool:
         """Finalize download by renaming temp file and verifying checksum."""
-        print(f"[DEBUG] _finalize_download: temp_path={temp_path}, output_path={output_path}")
+        logger.debug("Finalizing download: temp=%s -> output=%s", temp_path, output_path)
         temp_path.rename(output_path)
         output_path.chmod(0o644)
 

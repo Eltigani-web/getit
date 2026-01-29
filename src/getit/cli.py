@@ -24,6 +24,16 @@ from getit.config import get_settings
 from getit.core.downloader import DownloadTask
 from getit.core.manager import DownloadManager, DownloadResult
 from getit.extractors.base import FileInfo
+from getit.utils.logging import (
+    get_download_id,
+    get_logger,
+    get_run_id,
+    set_download_id,
+    set_run_id,
+    setup_logging,
+)
+
+logger = get_logger(__name__)
 
 app = typer.Typer(
     name="getit",
@@ -134,6 +144,8 @@ def download(
         typer.Option("--limit", help="Speed limit (e.g., 1M, 500K)"),
     ] = None,
 ) -> None:
+    with set_run_id():
+        all_urls: list[str] = []
     all_urls: list[str] = []
 
     if file:
@@ -168,6 +180,9 @@ def download(
             speed_limit = int(value * multipliers.get(unit, 1))
 
     async def run_downloads() -> None:
+        run_id = get_run_id()
+        logger.info("Starting download session", extra={"url_count": len(all_urls)})
+
         async with DownloadManager(
             output_dir=output_dir,
             max_concurrent=concurrent,
@@ -220,22 +235,14 @@ def download(
                 # TODO: Revisit concurrency if performance becomes bottleneck
                 results: list[DownloadResult] = []
                 for task in all_tasks:
-                    result = await manager.download_task(task, on_progress=tracker.update)
+                    with set_download_id(task.task_id):
+                        logger.info("Starting download: %s", task.file_info.filename)
+                        result = await manager.download_task(task, on_progress=tracker.update)
                     results.append(result)
 
-            success_count = sum(1 for r in results if r.success)
-            fail_count = len(results) - success_count
-
-            if success_count > 0:
-                console.print(f"[green]✓ {success_count} file(s) downloaded successfully[/green]")
-
-            if fail_count > 0:
-                console.print(f"[red]✗ {fail_count} file(s) failed[/red]")
-                for result in results:
-                    if not result.success:
-                        console.print(
-                            f"  [red]•[/red] {result.task.file_info.filename}: {result.error}"
-                        )
+        logger.info(
+            "Download session completed: %d succeeded, %d failed", success_count, fail_count
+        )
 
     asyncio.run(run_downloads())
 
@@ -373,7 +380,7 @@ def main(
         typer.Option("--version", "-V", callback=version_callback, is_eager=True),
     ] = None,
 ) -> None:
-    pass
+    setup_logging()
 
 
 if __name__ == "__main__":

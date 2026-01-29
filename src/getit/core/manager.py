@@ -20,7 +20,13 @@ from getit.extractors.mega import MegaExtractor
 from getit.extractors.onefichier import OneFichierExtractor
 from getit.extractors.pixeldrain import PixelDrainExtractor
 from getit.utils.http import HTTPClient
+from getit.utils.logging import get_logger
 from getit.utils.sanitize import sanitize_filename
+
+if TYPE_CHECKING:
+    pass
+
+logger = get_logger(__name__)
 
 if TYPE_CHECKING:
     pass
@@ -161,9 +167,7 @@ class DownloadManager:
         if not self._http or not self._semaphore:
             raise RuntimeError("DownloadManager not started")
 
-        print(
-            f"[DEBUG] download_task called: task_id={task.task_id}, output_path={task.output_path}"
-        )
+        logger.debug("Download task started: task_id=%s, output=%s", task.task_id, task.output_path)
 
         async with self._semaphore:
             downloader = FileDownloader(
