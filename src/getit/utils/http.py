@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 import random
+import ssl
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any
 
@@ -76,12 +77,14 @@ class HTTPClient:
 
         return https_proxy or http_proxy
 
-    def _get_ssl_context(self) -> aiohttp.Fingerprint | None:
+    def _get_ssl_context(self) -> ssl.SSLContext | None:
         ssl_cert_file = os.environ.get("SSL_CERT_FILE")
         ssl_cert_dir = os.environ.get("SSL_CERT_DIR")
 
         if ssl_cert_file or ssl_cert_dir:
-            return None
+            ctx = ssl.create_default_context()
+            ctx.load_verify_locations(cafile=ssl_cert_file, capath=ssl_cert_dir)
+            return ctx
         return None
 
     async def __aenter__(self) -> HTTPClient:

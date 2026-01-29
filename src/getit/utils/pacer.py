@@ -7,7 +7,6 @@ import re
 from typing import TYPE_CHECKING
 
 import aiohttp
-from bs4 import BeautifulSoup
 
 if TYPE_CHECKING:
     from getit.utils.http import HTTPClient

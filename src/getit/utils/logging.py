@@ -101,7 +101,6 @@ class SecretRedactor:
         r'bearer["\s:=]+["\s]*([a-zA-Z0-9_-]{20,})',
         r'secret["\s:=]+["\s]*([a-zA-Z0-9_-]{20,})',
         r'key["\s:=]+["\s]*([a-zA-Z0-9_-]{20,})',
-        r'token["\s:=]+["\s]*([a-zA-Z0-9_-]{20,})',
     )
 
     REDACTED_PLACEHOLDER: ClassVar[str] = "***REDACTED***"
@@ -278,6 +277,7 @@ def setup_logging(config: LogConfig | None = None) -> None:
     _async_handler.start_listener()
 
     _logger.addHandler(_async_handler)
+    _logger.propagate = False
 
     # Configure root logger to propagate all logs
     root_logger = logging.getLogger()
