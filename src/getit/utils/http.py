@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import random
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any
@@ -10,6 +11,8 @@ from aiolimiter import AsyncLimiter
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
+
+from getit import __version__
 
 
 class RateLimitError(Exception):
@@ -23,29 +26,63 @@ class RateLimitError(Exception):
 class HTTPClient:
     def __init__(
         self,
+        settings: Any | None = None,
         requests_per_second: float = 10.0,
         timeout_connect: float = 30.0,
         timeout_sock_read: float = 300.0,
         timeout_total: float | None = None,
         max_retries: int = 3,
     ):
-        self._requests_per_second = requests_per_second
+        if settings is not None:
+            self._requests_per_second = getattr(settings, "requests_per_second", 10.0)
+            self._timeout_connect = getattr(settings, "timeout_connect", 30.0) or 30.0
+            self._timeout_sock_read = getattr(settings, "timeout_sock_read", 300.0) or 300.0
+            self._timeout_total = getattr(settings, "timeout_total", None)
+            self._max_retries = getattr(settings, "max_retries", 3)
+            self._chunk_timeout = getattr(settings, "chunk_timeout", None)
+        else:
+            self._requests_per_second = requests_per_second
+            self._timeout_connect = timeout_connect
+            self._timeout_sock_read = timeout_sock_read
+            self._timeout_total = timeout_total
+            self._max_retries = max_retries
+            self._chunk_timeout = None
+
         self._timeout = aiohttp.ClientTimeout(
-            total=timeout_total,
-            sock_connect=timeout_connect,
-            sock_read=timeout_sock_read,
-            connect=timeout_connect,
+            total=self._timeout_total,
+            sock_connect=self._timeout_connect,
+            sock_read=self._timeout_sock_read,
+            connect=self._timeout_connect,
         )
-        self._max_retries = max_retries
-        self._limiter = AsyncLimiter(requests_per_second, 1.0)
+        self._limiter = AsyncLimiter(self._requests_per_second, 1.0)
         self._session: aiohttp.ClientSession | None = None
         self._headers = {
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "User-Agent": f"getit/{__version__}",
             "Accept": "*/*",
             "Accept-Language": "en-US,en;q=0.9",
             "Accept-Encoding": "gzip, deflate, br",
         }
+
+        self._proxy = self._get_proxy_config()
+        self._ssl_context = self._get_ssl_context()
+
+    def _get_proxy_config(self) -> str | None:
+        http_proxy = os.environ.get("HTTP_PROXY") or os.environ.get("http_proxy")
+        https_proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy")
+        no_proxy = os.environ.get("NO_PROXY") or os.environ.get("no_proxy")
+
+        if no_proxy:
+            os.environ["no_proxy"] = no_proxy
+
+        return https_proxy or http_proxy
+
+    def _get_ssl_context(self) -> aiohttp.Fingerprint | None:
+        ssl_cert_file = os.environ.get("SSL_CERT_FILE")
+        ssl_cert_dir = os.environ.get("SSL_CERT_DIR")
+
+        if ssl_cert_file or ssl_cert_dir:
+            return None
+        return None
 
     async def __aenter__(self) -> HTTPClient:
         await self.start()
@@ -58,7 +95,7 @@ class HTTPClient:
         if retry_after is not None:
             return min(retry_after, 60.0)
         base_delay = 2**attempt
-        jitter = random.uniform(0, 0.5)
+        jitter = random.uniform(0, 0.5) * base_delay
         return min(base_delay + jitter, 60.0)
 
     def _parse_retry_after(self, response: aiohttp.ClientResponse) -> float | None:
@@ -87,12 +124,13 @@ class HTTPClient:
                 return result
             except aiohttp.ClientResponseError as e:
                 if e.status == 429:
+                    retry_after = self._parse_retry_after(e)
                     if attempt < self._max_retries:
-                        backoff = self._calculate_backoff(attempt)
+                        backoff = self._calculate_backoff(attempt, retry_after)
                         await asyncio.sleep(backoff)
                         continue
                     raise RateLimitError(
-                        f"Rate limited after {self._max_retries} retries", None
+                        f"Rate limited after {self._max_retries} retries", retry_after
                     ) from e
                 if not is_retryable_exception(e):
                     raise
@@ -120,11 +158,13 @@ class HTTPClient:
                 force_close=False,
                 keepalive_timeout=300,
                 ttl_dns_cache=300,
+                ssl=self._ssl_context,
             )
             self._session = aiohttp.ClientSession(
                 connector=connector,
                 timeout=self._timeout,
                 headers=self._headers,
+                trust_env=True,
             )
 
     async def close(self) -> None:
@@ -215,9 +255,21 @@ class HTTPClient:
             resp.raise_for_status()
             total = int(resp.headers.get("content-length", 0))
             downloaded = 0
-            async for chunk in resp.content.iter_chunked(chunk_size):
-                downloaded += len(chunk)
-                yield chunk, downloaded, total
+            chunk_iter = resp.content.iter_chunked(chunk_size)
+            while True:
+                try:
+                    if self._chunk_timeout is not None:
+                        chunk = await asyncio.wait_for(
+                            chunk_iter.__anext__(), timeout=self._chunk_timeout
+                        )
+                    else:
+                        chunk = await chunk_iter.__anext__()
+                    downloaded += len(chunk)
+                    yield chunk, downloaded, total
+                except StopAsyncIteration:
+                    break
+                except asyncio.TimeoutError:
+                    raise TimeoutError(f"Chunk download timeout after {self._chunk_timeout}s")
 
     async def get_file_info(
         self,

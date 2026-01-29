@@ -65,11 +65,16 @@ class Settings(BaseSettings):
     download_dir: Path = Field(default_factory=get_default_download_dir)
     max_concurrent_downloads: int = Field(default=3, ge=1, le=10)
     max_concurrent_chunks: int = Field(default=4, ge=1, le=16)
-    chunk_size: int = Field(default=1024 * 1024, ge=1024)  # 1MB default
+    chunk_size: int = Field(default=1024 * 1024, ge=1024)
     max_retries: int = Field(default=3, ge=0, le=10)
     retry_delay: float = Field(default=1.0, ge=0.0)
     timeout: float = Field(default=30.0, ge=5.0)
-    speed_limit: int | None = Field(default=None)  # bytes/sec, None = unlimited
+    speed_limit: int | None = Field(default=None)
+
+    timeout_connect: float | None = Field(default=None, ge=1.0)
+    timeout_sock_read: float | None = Field(default=None, ge=1.0)
+    timeout_total: float | None = Field(default=None, ge=1.0)
+    chunk_timeout: float | None = Field(default=None, ge=1.0)
 
     # Resume settings
     enable_resume: bool = Field(default=True)
