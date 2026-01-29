@@ -57,6 +57,12 @@ class GoFileExtractor(BaseExtractor):
     }
 
     def __init__(self, http_client: HTTPClient, api_token: str | None = None):
+        """
+        Initialize the extractor with an HTTP client and optional API token, and initialize cached token state.
+        
+        Parameters:
+            api_token (str | None): Optional pre-existing API token to use for authenticated requests. If provided, it is stored as the current token; token and website-token expiry counters are initialized to zero.
+        """
         super().__init__(http_client)
         self._token: str | None = api_token
         self._website_token: str | None = None
@@ -64,6 +70,14 @@ class GoFileExtractor(BaseExtractor):
         self._token_expiry: float = 0
 
     async def _get_guest_token(self) -> str:
+        """
+        Obtain a valid guest API token for GoFile.
+        
+        If a cached token exists and is not expired, it is returned. Otherwise a guest account token is created, cached with an expiry, and the HTTP client's cookies are updated with the `accountToken`. Raises ExtractorError if token creation fails.
+        
+        Returns:
+            str: The guest account token.
+        """
         if self._token and time.time() < self._token_expiry:
             return self._token
 
@@ -81,6 +95,14 @@ class GoFileExtractor(BaseExtractor):
         raise ExtractorError(f"Failed to create guest account: {data.get('status', 'unknown')}")
 
     async def _get_website_token(self) -> str:
+        """
+        Retrieve and cache the website token used to authorize API requests.
+        
+        Checks for a cached website token and returns it if still valid. Otherwise, fetches configured JavaScript/config URLs and searches their text using the configured WT_PATTERNS; if a match is found, caches the token for TOKEN_TTL seconds and returns it. If no token can be extracted, stores and returns FALLBACK_WT with a one-hour expiry.
+        
+        Returns:
+            str: The website token to use for requests.
+        """
         if self._website_token and time.time() < self._website_token_expiry:
             return self._website_token
 
@@ -115,6 +137,22 @@ class GoFileExtractor(BaseExtractor):
     async def _get_content(
         self, content_id: str, password: str | None = None, max_retries: int = 2
     ) -> dict:
+        """
+        Fetch content metadata for a GoFile content ID, handling token acquisition and retryable server errors.
+        
+        Parameters:
+            content_id (str): GoFile content identifier to fetch.
+            password (str | None): Optional plaintext password for password-protected content; it will be hashed before transmission.
+            max_retries (int): Maximum number of retry attempts for transient token or server errors.
+        
+        Returns:
+            dict: The parsed `data` object from the API response for the requested content.
+        
+        Raises:
+            NotFound: If the content does not exist.
+            PasswordRequired: If the content requires a password and none/incorrect password was provided.
+            ExtractorError: For API-reported errors, repeated token or overload failures, or unknown fetch failures.
+        """
         last_error: Exception | None = None
 
         for attempt in range(max_retries + 1):
@@ -178,6 +216,16 @@ class GoFileExtractor(BaseExtractor):
         raise ExtractorError("Unknown error fetching content")
 
     def _parse_file(self, file_data: dict, folder_name: str | None = None) -> FileInfo:
+        """
+        Create a FileInfo object from a raw file dictionary returned by the GoFile API.
+        
+        Parameters:
+            file_data (dict): Raw file entry from API; expected keys include "link" (or "directLink" when link equals "overloaded"), "name", "size", and optional "md5".
+            folder_name (str | None): Parent folder name to set on the returned FileInfo, or None if not applicable.
+        
+        Returns:
+            FileInfo: A populated FileInfo with URL/direct_url set from the file link, filename, size, optional MD5 checksum and checksum_type ("md5" when MD5 is present), headers including an Authorization bearer token, and cookies containing accountToken when an extractor token exists.
+        """
         link = file_data.get("link", "")
         if link == "overloaded":
             link = file_data.get("directLink", "")

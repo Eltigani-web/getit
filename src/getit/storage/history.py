@@ -57,18 +57,27 @@ class DownloadHistory:
     )
 
     def __init__(self, db_path: Path, file_permissions: int | None = None):
-        """Initialize download history.
-
-        Args:
-            db_path: Path to SQLite database
-            file_permissions: Optional custom permissions (default: 600 for config, 640 for downloads)
+        """
+        Initialize a DownloadHistory bound to the given SQLite database path.
+        
+        Parameters:
+            db_path (Path): Filesystem path to the SQLite database file.
+            file_permissions (int | None): Optional explicit permission bits to apply to the database file. If omitted, permissions are determined automatically (config-like paths use 0o600, download storage paths use 0o640).
         """
         self.db_path = db_path
         self._db: aiosqlite.Connection | None = None
         self._file_permissions = file_permissions
 
     def _get_permissions(self) -> int:
-        """Determine appropriate file permissions for database."""
+        """
+        Choose file permission bits to apply to the database file.
+        
+        If an explicit file permission override was provided at initialization, that value is returned.
+        Otherwise, returns a more restrictive permission set when the database path appears to be in a configuration-like location (contains "config", ".config", or "application support"); otherwise returns the default download-file permission set.
+        
+        Returns:
+            int: File permission bitmask to apply to the database file.
+        """
         if self._file_permissions is not None:
             return self._file_permissions
         # Check if db_path is in config directory (more restrictive)
@@ -90,23 +99,55 @@ class DownloadHistory:
             return text
 
         def replace_secret(match):
+            """
+            Replace a regex match by preserving the first capture group and appending a redaction marker.
+            
+            Parameters:
+            	match (re.Match): The regex match whose group(1) contains the portion to keep.
+            
+            Returns:
+            	str: The replacement string consisting of `group(1)` followed by `***REDACTED***`.
+            """
             return f"{match.group(1)}***REDACTED***"
 
         return self.SECRET_PATTERNS.sub(replace_secret, text)
 
     def _get_connection_kwargs(self) -> dict:
-        """Get connection kwargs with busy timeout."""
+        """
+        Provide connection keyword arguments including the SQLite busy timeout converted to seconds.
+        
+        Returns:
+            dict: Mapping with key `"timeout"` whose value is the busy timeout in seconds (float).
+        """
         return {"timeout": self.BUSY_TIMEOUT_MS / 1000.0}
 
     async def __aenter__(self) -> DownloadHistory:
+        """
+        Enter the context and ensure the database connection is established.
+        
+        Returns:
+            DownloadHistory: The same DownloadHistory instance with an open database connection.
+        """
         await self.connect()
         return self
 
     async def __aexit__(self, *args) -> None:
+        """
+        Exit the async context manager and close the database connection.
+        
+        Parameters:
+            exc_type: The exception class if an exception was raised in the context, else None.
+            exc: The exception instance if an exception was raised in the context, else None.
+            tb: The traceback object if an exception was raised in the context, else None.
+        """
         await self.close()
 
     async def connect(self) -> None:
-        """Connect to SQLite database with security hardening."""
+        """
+        Open and initialize the SQLite database connection and apply security hardening.
+        
+        Creates the database parent directory if missing, opens a connection (with the class-configured busy timeout) and assigns it to self._db, ensures the database file has the computed permissions (setting or correcting mode as needed), configures SQLite pragmas, creates required tables, and records the current schema version.
+        """
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
 
         # Connect with busy timeout
@@ -152,7 +193,12 @@ class DownloadHistory:
         await self._db.commit()
 
     async def _ensure_schema_version(self) -> None:
-        """Ensure schema_versions table exists and current version is recorded."""
+        """
+        Ensure the schema_versions table exists and that the current schema version is recorded.
+        
+        If the database connection is not open, this method is a no-op. If the current
+        schema version is not present in the table, it is inserted.
+        """
         if not self._db:
             return
 
@@ -177,10 +223,11 @@ class DownloadHistory:
             await self._db.commit()
 
     async def get_schema_version(self) -> int:
-        """Get current schema version from database.
-
+        """
+        Return the highest schema version recorded in the database.
+        
         Returns:
-            Current schema version (0 if not found)
+            int: The maximum schema version from the `schema_versions` table, or 0 if no version is found or the database is not connected.
         """
         if not self._db:
             return 0
@@ -190,6 +237,11 @@ class DownloadHistory:
         return row[0] if row and row[0] else 0
 
     async def _create_tables(self) -> None:
+        """
+        Create the downloads table and its indexes in the connected SQLite database.
+        
+        If the connection is not open, this method does nothing. Changes are committed to the database.
+        """
         if not self._db:
             return
 
@@ -230,6 +282,22 @@ class DownloadHistory:
         size: int = 0,
         extractor: str = "",
     ) -> int:
+        """
+        Insert a new download entry with status 'pending' into the downloads table.
+        
+        Parameters:
+            url (str): Source URL of the download.
+            filename (str): Name to save the file as.
+            filepath (str): Filesystem path where the file will be stored.
+            size (int): Expected size in bytes (default 0).
+            extractor (str): Identifier of the extractor used (optional).
+        
+        Returns:
+            int: The row id of the newly inserted download, or 0 if unavailable.
+        
+        Raises:
+            RuntimeError: If the database connection is not open.
+        """
         if not self._db:
             raise RuntimeError("Database not connected")
 

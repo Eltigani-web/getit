@@ -107,11 +107,12 @@ class Settings(BaseSettings):
 
 
 def save_config(settings: Settings) -> None:
-    """Save user-facing settings to JSON config file.
-
-    Note: Sensitive fields (tokens, API keys, passwords) are excluded from
-    the JSON config file to avoid storing plaintext credentials. These are
-    loaded from environment variables instead.
+    """
+    Persist non-sensitive user settings to the JSON config file.
+    
+    Writes selected, non-sensitive fields from the provided Settings instance to the config file returned by get_config_file_path(), creating parent directories if necessary. Sensitive values such as tokens, API keys, and passwords are not written and are expected to be supplied via environment variables or other secure means. After writing, the file permissions are set to rw------- (0o600).
+    Parameters:
+        settings (Settings): Settings instance whose user-facing fields will be saved.
     """
     config_path = get_config_file_path()
     config_data = {

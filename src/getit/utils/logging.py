@@ -63,7 +63,14 @@ class LogConfig:
 
     @classmethod
     def from_env(cls) -> "LogConfig":
-        """Create config from environment variables."""
+        """
+        Create a LogConfig populated from environment variables.
+        
+        Reads LOG_LEVEL (defaults to "INFO") and maps it to LogLevel, falling back to LogLevel.INFO on invalid values. Reads LOG_FORMAT (defaults to "auto") and maps it to LogFormat, falling back to LogFormat.AUTO on invalid values. Reads NO_COLOR and treats "1", "true", or "yes" (case-insensitive) as enabling no-color mode.
+        
+        Returns:
+            LogConfig: A LogConfig instance configured from LOG_LEVEL, LOG_FORMAT, and NO_COLOR.
+        """
         level_str = os.getenv("LOG_LEVEL", "INFO").upper()
         try:
             level = LogLevel(level_str)
@@ -81,6 +88,12 @@ class LogConfig:
         return cls(level=level, format=format_mode, no_color=no_color)
 
     def should_use_json(self) -> bool:
+        """
+        Decides whether logs should be emitted in JSON format.
+        
+        Returns:
+            `true` if the configured format is JSON or (when format is AUTO) stdout is not a TTY, `false` otherwise.
+        """
         if self.format == LogFormat.JSON:
             return True
         if self.format == LogFormat.PLAIN:
@@ -112,7 +125,15 @@ class SecretRedactor:
 
     @classmethod
     def redact(cls, message: str) -> str:
-        """Redact sensitive information from a message."""
+        """
+        Redacts sensitive values from a text message.
+        
+        Parameters:
+            message (str): Text that may contain sensitive values to be redacted.
+        
+        Returns:
+            str: A copy of `message` with sensitive substrings replaced by the redaction placeholder.
+        """
         for pattern in cls._compiled_patterns:
             message = pattern.sub(cls.REDACTED_PLACEHOLDER, message)
         return message
@@ -122,6 +143,15 @@ class JSONFormatter(logging.Formatter):
     """JSON formatter for structured logs."""
 
     def format(self, record: logging.LogRecord) -> str:
+        """
+        Format a LogRecord into a JSON-encoded log entry string.
+        
+        Parameters:
+            record (logging.LogRecord): The log record to format.
+        
+        Returns:
+            str: A JSON string representing the log record that includes `timestamp`, `level`, `logger`, a redacted `message`, `run_id`, `download_id`, an `exception` field when present, and any other non-standard record attributes; the string ends with a newline.
+        """
         log_entry: dict[str, Any] = {
             "timestamp": datetime.fromtimestamp(record.created).isoformat(),
             "level": record.levelname,
@@ -177,16 +207,26 @@ class PlainFormatter(logging.Formatter):
     RESET = "\033[0m"
 
     def __init__(self, no_color: bool = False) -> None:
-        """Initialize formatter.
-
-        Args:
-            no_color: Disable ANSI color codes.
+        """
+        Create a plain-text log formatter that includes timestamp, level, logger name, and message, with optional ANSI color suppression.
+        
+        Parameters:
+            no_color (bool): If True, disable ANSI color codes in formatted output. Default is False.
         """
         self.no_color = no_color
         fmt = "%(asctime)s %(levelname)-8s [%(name)s] %(message)s"
         super().__init__(fmt=fmt, datefmt="%Y-%m-%d %H:%M:%S")
 
     def format(self, record: logging.LogRecord) -> str:
+        """
+        Format a LogRecord into a plain-text log line with secret redaction, optional ANSI colors, and appended run/download context.
+        
+        Parameters:
+            record (logging.LogRecord): The log record to format.
+        
+        Returns:
+            str: The redacted, context-annotated plain-text message. Includes ANSI color codes when colors are enabled and stdout is a TTY.
+        """
         message = super().format(record)
         message = SecretRedactor.redact(message)
 
@@ -216,6 +256,12 @@ class AsyncSafeLogHandler(logging.Handler):
     """
 
     def __init__(self, handler: logging.Handler) -> None:
+        """
+        Initialize an async-safe log handler that queues records before delegating to the given target handler.
+        
+        Parameters:
+            handler (logging.Handler): The underlying handler that will ultimately process log records; the AsyncSafeLogHandler will enqueue records and forward them to this handler via a background listener.
+        """
         super().__init__()
         self.queue_handler = logging.handlers.QueueHandler(queue.Queue(-1))
         self.queue = self.queue_handler.queue
@@ -223,7 +269,12 @@ class AsyncSafeLogHandler(logging.Handler):
         self.listener: logging.handlers.QueueListener | None = None
 
     def emit(self, record: logging.LogRecord) -> None:
-        """Emit a log record, capturing context at emit time."""
+        """
+        Attach the current run and download context to the given log record and forward it to the internal queue handler if configured.
+        
+        Parameters:
+            record (logging.LogRecord): Log record to emit. This function sets `record.run_id` and `record.download_id` from the current context before forwarding the record to the internal queue handler when present.
+        """
         record.run_id = _run_id.get()
         record.download_id = _download_id.get()
         if self.queue_handler:
@@ -236,7 +287,11 @@ class AsyncSafeLogHandler(logging.Handler):
             self.listener.start()
 
     def stop_listener(self) -> None:
-        """Stop the queue listener."""
+        """
+        Stop the background QueueListener if it is running.
+        
+        If a listener is active, this stops it and clears the internal reference; calling this when no listener is active does nothing.
+        """
         if self.listener:
             self.listener.stop()
             self.listener = None
@@ -247,10 +302,13 @@ _async_handler: AsyncSafeLogHandler | None = None
 
 
 def setup_logging(config: LogConfig | None = None) -> None:
-    """Initialize structured logging for the application.
-
-    Args:
-        config: Logging configuration. If None, reads from environment.
+    """
+    Configure and enable structured logging for the application.
+    
+    This function is idempotent: if logging has already been initialized it does nothing. If `config` is omitted, configuration is loaded from environment variables. The configured handlers are attached to the application logger and the root logger so logging is available across the process.
+     
+    Parameters:
+        config (LogConfig | None): Optional logging configuration. If `None`, a configuration is created from environment variables.
     """
     global _logger, _async_handler
 
@@ -298,13 +356,14 @@ def shutdown_logging() -> None:
 
 @contextmanager
 def set_run_id(run_id: str | None = None) -> Generator[None, None, None]:
-    """Set the run_id context variable.
-
-    Args:
-        run_id: The run ID. If None, generates a new UUID.
-
-    Yields:
-        None
+    """
+    Set the current run identifier for the execution context.
+    
+    If `run_id` is None, generates an 8-character UUID string and uses that as the run identifier.
+    The previous run_id value is restored when the context exits.
+    
+    Parameters:
+        run_id (str | None): Optional run identifier to set for the context. If omitted, a new 8-character UUID is generated.
     """
     if run_id is None:
         run_id = str(uuid.uuid4())[:8]
@@ -317,13 +376,13 @@ def set_run_id(run_id: str | None = None) -> Generator[None, None, None]:
 
 @contextmanager
 def set_download_id(download_id: str | None = None) -> Generator[None, None, None]:
-    """Set the download_id context variable.
-
-    Args:
-        download_id: The download ID. If None, generates a new UUID.
-
-    Yields:
-        None
+    """
+    Temporarily set the download identifier in context for the duration of a with-block.
+    
+    Sets the module-level download_id context variable to the provided string or, if None, to a newly generated 8-character UUID. The previous context value is restored when the context manager exits.
+    
+    Parameters:
+        download_id (str | None): The download identifier to set; if None, an 8-character UUID fragment is generated.
     """
     if download_id is None:
         download_id = str(uuid.uuid4())[:8]
@@ -335,12 +394,22 @@ def set_download_id(download_id: str | None = None) -> Generator[None, None, Non
 
 
 def get_run_id() -> str | None:
-    """Get the current run_id."""
+    """
+    Retrieve the current run identifier from the logging context.
+    
+    Returns:
+        The current run identifier as a string, or `None` if no run id is set.
+    """
     return _run_id.get()
 
 
 def get_download_id() -> str | None:
-    """Get the current download_id."""
+    """
+    Retrieve the current download identifier from the logging context.
+    
+    Returns:
+        str | None: The current download identifier if set, otherwise `None`.
+    """
     return _download_id.get()
 
 

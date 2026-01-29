@@ -8,13 +8,11 @@ from importlib.metadata import PackageNotFoundError, version
 
 
 def __set_git_version__() -> str:
-    """Get version from git tags via setuptools_scm (single source of truth).
-
+    """
+    Determine the package version from git tags using setuptools_scm.
+    
     Returns:
-        str: Version string from setuptools_scm or fallback version.
-
-    The version is dynamically determined by setuptools_scm from git tags.
-    If git tags are not available, falls back to 0.1.0.
+        str: Version string derived from git tags, or "0.1.0" if package metadata is unavailable.
     """
     try:
         return version("getit-cli")

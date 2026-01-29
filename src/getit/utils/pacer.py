@@ -33,13 +33,13 @@ class Pacer:
         jitter_factor: float = 0.1,
     ):
         """
-        Initialize pacer with configurable backoff parameters.
-
-        Args:
-            min_backoff: Minimum backoff time in seconds (default: 0.4s = 400ms)
-            max_backoff: Maximum backoff time in seconds (default: 5.0s)
-            flood_sleep: Sleep time when flood/IP-lock detected (default: 30s)
-            jitter_factor: Random jitter factor (0.0-1.0, default: 0.1 = 10%)
+        Create a Pacer configured for exponential backoff, optional flood/IP-lock handling, and randomized jitter.
+        
+        Parameters:
+            min_backoff (float): Minimum backoff in seconds used as the base delay (default 0.4).
+            max_backoff (float): Maximum backoff in seconds to cap exponential growth (default 5.0).
+            flood_sleep (float): Sleep duration in seconds when a flood/IP-lock condition is detected (default 30.0).
+            jitter_factor (float): Fractional jitter applied to backoff in the range [0.0, 1.0] (default 0.1).
         """
         self.min_backoff = min_backoff
         self.max_backoff = max_backoff
@@ -53,15 +53,13 @@ class Pacer:
 
     def calculate_backoff(self, attempt: int | None = None) -> float:
         """
-        Calculate exponential backoff with jitter.
-
-        Formula: min(max_backoff, min_backoff * (2^attempt)) * (1 + jitter)
-
-        Args:
-            attempt: Attempt number (uses internal counter if None)
-
+        Compute the exponential backoff delay for a given attempt, including random jitter.
+        
+        Parameters:
+            attempt (int | None): Attempt index to base the backoff on; if None, uses the pacer's current attempt count.
+        
         Returns:
-            Backoff time in seconds
+            float: Backoff delay in seconds (capped by `max_backoff` and adjusted by jitter).
         """
         if attempt is None:
             attempt = self._attempt_count
@@ -80,10 +78,10 @@ class Pacer:
 
     async def sleep(self, attempt: int | None = None) -> None:
         """
-        Sleep for calculated backoff time.
-
-        Args:
-            attempt: Attempt number (uses internal counter if None)
+        Pause execution for the pacer's computed backoff delay.
+        
+        Parameters:
+            attempt (int | None): Specific attempt index to base the backoff on; if `None`, the pacer's internal attempt counter is used and incremented.
         """
         delay = self.calculate_backoff(attempt)
         if attempt is None:
@@ -92,7 +90,12 @@ class Pacer:
         await asyncio.sleep(delay)
 
     async def backoff(self, attempt: int | None = None) -> None:
-        """Alias for sleep() for backward compatibility."""
+        """
+        Pause execution for a backoff delay computed from the given attempt index or the pacer's internal attempt counter to maintain backward compatibility.
+        
+        Parameters:
+            attempt (int | None): Optional attempt index used to compute the delay. If `None`, the pacer's internal attempt counter is used and incremented.
+        """
         await self.sleep(attempt)
 
     def detect_flood_ip_lock(self, html: str) -> bool:
@@ -131,28 +134,25 @@ class Pacer:
 
     async def handle_flood_ip_lock(self) -> None:
         """
-        Handle flood/IP-lock by sleeping for configured time.
-
-        Logs warning and sleeps for flood_sleep seconds.
+        Pause execution for the configured flood/IP-lock duration to mitigate request flooding.
+        
+        Logs a warning and sleeps for self.flood_sleep seconds.
         """
         logger.warning(f"Flood/IP-lock detected, sleeping {self.flood_sleep}s")
         await asyncio.sleep(self.flood_sleep)
 
     def parse_wait_time(self, html: str) -> float | None:
         """
-        Parse wait time from HTML wait page.
-
-        Supports various formats:
-        - "Please wait 30 seconds"
-        - "You must wait 2 minutes"
-        - "countdown: 60"
-        - "wait_time=45"
-
-        Args:
-            html: HTML response text
-
+        Extract a wait time from an HTML wait page and return it in seconds.
+        
+        Recognizes common wait representations such as "Please wait 30 seconds", "You must wait 2 minutes",
+        "countdown: 60", "wait_time=45", and JavaScript assignments like "var wait = 60;".
+        
+        Parameters:
+            html (str): HTML response text potentially containing a wait time.
+        
         Returns:
-            Wait time in seconds, or None if not found
+            float | None: The parsed wait time in seconds, or None if no wait time is found.
         """
         # Pattern 1: "wait X seconds/minutes"
         match = re.search(
@@ -188,14 +188,14 @@ class Pacer:
 
     async def parse_and_wait(self, html: str, max_wait: float = 300.0) -> bool:
         """
-        Parse wait time from HTML and wait if found.
-
-        Args:
-            html: HTML response text
-            max_wait: Maximum wait time in seconds (default: 300s = 5 minutes)
-
+        Parse a wait time from HTML and sleep for that duration if a valid, bounded wait is found.
+        
+        Parameters:
+            html (str): HTML response text to scan for an embedded wait time.
+            max_wait (float): Maximum allowed wait in seconds; parsed waits greater than this are ignored.
+        
         Returns:
-            True if wait was executed, False otherwise
+            True if a wait was performed, False otherwise.
         """
         wait_time = self.parse_wait_time(html)
 
@@ -216,13 +216,13 @@ class Pacer:
 
     async def handle_rate_limited(self, response_text: str) -> bool:
         """
-        Handle rate-limited responses with flood detection and wait parsing.
-
-        Args:
-            response_text: Response text (HTML or plain text)
-
+        Handle rate-limited responses by detecting flood/IP-lock pages or parsing wait pages and performing the corresponding wait.
+        
+        Parameters:
+            response_text (str): HTML or plain text of the response to inspect for flood/IP-lock indicators or wait instructions.
+        
         Returns:
-            True if flood/IP-lock or wait was handled, False otherwise
+            `True` if a flood/IP-lock was handled or a wait was performed, `False` otherwise.
         """
         # Check for flood/IP-lock
         if self.detect_flood_ip_lock(response_text):
@@ -237,12 +237,23 @@ class Pacer:
 
     @property
     def attempt_count(self) -> int:
-        """Get current attempt count."""
+        """
+        Return the current internal attempt counter used for exponential backoff.
+        
+        Returns:
+            attempt_count (int): The number of backoff attempts that have been made.
+        """
         return self._attempt_count
 
     @property
     def next_backoff(self) -> float:
-        """Get next backoff time without incrementing counter."""
+        """
+        Compute the backoff delay for the current attempt without advancing the attempt counter.
+        
+        The returned value is the delay in seconds, including configured jitter and clamped between the pacer's minimum and maximum backoff.
+        Returns:
+            float: Backoff delay in seconds for the current attempt.
+        """
         return self.calculate_backoff(self._attempt_count)
 
 
@@ -254,19 +265,17 @@ async def wait_for_retry_with_pacer(
     is_retryable: bool = True,
 ) -> bool:
     """
-    Retry a request with pacer backoff.
-
-    Helper function that combines HTTPClient retry logic with Pacer.
-
-    Args:
-        http_client: HTTPClient instance
-        url: URL to fetch
-        pacer: Pacer instance (creates default if None)
-        max_retries: Maximum number of retries
-        is_retryable: Whether error is retryable
-
+    Attempt an HTTP GET with a Pacer-backed retry strategy.
+    
+    Parameters:
+        http_client (HTTPClient): Client used to perform the GET request.
+        url (str): The URL to fetch.
+        pacer (Pacer | None): Pacer to control backoff behavior; a default Pacer is created if None.
+        max_retries (int): Maximum number of retry attempts (excluding the initial try).
+        is_retryable (bool): If False, do not retry on error.
+    
     Returns:
-        True if request succeeded, False if failed
+        bool: `True` if the request succeeded, `False` if all attempts failed or retries are disabled.
     """
     if pacer is None:
         pacer = Pacer()

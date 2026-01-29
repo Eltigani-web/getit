@@ -63,11 +63,25 @@ class OneFichierExtractor(BaseExtractor):
     ]
 
     def __init__(self, http_client: HTTPClient):
+        """
+        Initialize the extractor and configure request pacing and retry behavior.
+        
+        Sets up the base extractor with the provided HTTP client and creates an internal Pacer configured with a 0.4–5.0 second exponential backoff range and a 30.0 second flood sleep to manage retries and rate-limit/flood handling.
+        """
         super().__init__(http_client)
         self._pacer = Pacer(min_backoff=0.4, max_backoff=5.0, flood_sleep=30.0)
 
     @classmethod
     def can_handle(cls, url: str) -> bool:
+        """
+        Determine whether this extractor can handle the given URL by matching known URL patterns or supported domains.
+        
+        Parameters:
+            url (str): The URL to test.
+        
+        Returns:
+            True if the extractor can handle the URL, False otherwise.
+        """
         if cls.URL_PATTERN.match(url) or cls.ALT_PATTERN.match(url):
             return True
         return any(domain in url for domain in cls.SUPPORTED_DOMAINS)
@@ -118,6 +132,24 @@ class OneFichierExtractor(BaseExtractor):
     async def _parse_page(
         self, html: str, url: str, password: str | None = None
     ) -> tuple[str | None, str | None, int]:
+        """
+        Parse a 1fichier download page HTML and extract the direct download URL, the filename, and the file size.
+        
+        Parameters:
+            html (str): Raw HTML of the download page.
+            url (str): Original page URL (used for context; not modified).
+            password (str | None): Optional password to satisfy password-protected pages.
+        
+        Returns:
+            tuple[str | None, str, int]: A tuple containing:
+                - direct_link: Direct download URL if found, otherwise `None`.
+                - filename: Extracted filename, or `"unknown"` if not determinable.
+                - size: File size in bytes (0 if not found).
+        
+        Raises:
+            PasswordRequired: If the page requires a password and none was provided.
+            ExtractorError: If the service is temporarily unavailable, requires premium, download limits are reached, or a required wait time is unacceptably long.
+        """
         soup = BeautifulSoup(html, "lxml")
 
         if self.TEMP_OFFLINE_PATTERN.search(html):
@@ -179,6 +211,25 @@ class OneFichierExtractor(BaseExtractor):
         return direct_link, filename, size
 
     async def extract(self, url: str, password: str | None = None) -> list[FileInfo]:
+        """
+        Attempt to extract file metadata and a direct download URL from a 1fichier-style page.
+        
+        Parameters:
+            url (str): The page URL to extract from.
+            password (str | None): Optional password to submit if the file is password-protected.
+        
+        Returns:
+            list[FileInfo]: A list containing a single FileInfo with fields:
+                - url: the original page URL
+                - filename: extracted filename or "unknown"
+                - size: extracted file size in bytes (0 if unknown)
+                - direct_url: the direct download URL
+                - extractor_name: the extractor identifier ("1fichier")
+        
+        Raises:
+            PasswordRequired: If the page requires a password and none was provided.
+            ExtractorError: If extraction fails (including when no direct link can be found or after retrying).
+        """
         max_retries = 3
         self._pacer.reset()
 

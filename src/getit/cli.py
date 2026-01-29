@@ -144,6 +144,20 @@ def download(
         typer.Option("--limit", help="Speed limit (e.g., 1M, 500K)"),
     ] = None,
 ) -> None:
+    """
+    Download files from one or more URLs or from a file and save them to the specified output directory.
+    
+    Extracts file entries from supported hosts, creates download tasks, and downloads the discovered files while displaying progress. Supports limiting concurrency, disabling resume, supplying passwords for protected archives, and applying an optional speed limit.
+    
+    Parameters:
+        urls (list[str] | None): Positional URLs to download.
+        file (Path | None): Path to a file containing URLs (one per line). Lines starting with `#` and blank lines are ignored.
+        output (Path | None): Output directory; overrides the configured download directory when provided.
+        concurrent (int): Maximum number of concurrent downloads.
+        password (str | None): Password to use for protected files or archives.
+        no_resume (bool): If True, disable resume for partial downloads.
+        limit (str | None): Speed limit string (e.g., "1M", "500K"); units K, M, G are supported and parsed into bytes/sec.
+    """
     with set_run_id():
         all_urls: list[str] = []
     all_urls: list[str] = []
@@ -180,6 +194,11 @@ def download(
             speed_limit = int(value * multipliers.get(unit, 1))
 
     async def run_downloads() -> None:
+        """
+        Orchestrates extraction of all session URLs, creates download tasks, and performs their downloads while reporting progress.
+        
+        Extracts files from the module-scoped `all_urls`, registers each discovered file as a download task, and displays extraction and download progress in the console. Extraction runs in parallel (limited by an internal semaphore) and reports per-URL extraction errors to the console; downloads are executed sequentially to ensure correct progress tracking. If no downloadable files are found the function prints a notice and returns. The function logs session start and completion information and yields no return value.
+        """
         run_id = get_run_id()
         logger.info("Starting download session", extra={"url_count": len(all_urls)})
 
@@ -380,6 +399,11 @@ def main(
         typer.Option("--version", "-V", callback=version_callback, is_eager=True),
     ] = None,
 ) -> None:
+    """
+    Initialize application logging before the CLI runs.
+    
+    This function configures global logging for the application; it is intended to be invoked by the Typer CLI on startup (e.g., as an eager callback for the version option).
+    """
     setup_logging()
 
 

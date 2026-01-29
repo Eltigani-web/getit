@@ -260,7 +260,20 @@ class FileDownloader:
         expected_checksum: str,
         checksum_type: str,
     ) -> bool:
-        """Verify file checksum matches expected value."""
+        """
+        Verify that a file's checksum matches the expected value.
+        
+        Parameters:
+            file_path (Path): Path to the file to verify.
+            expected_checksum (str): Expected checksum as a hex string.
+            checksum_type (str): Checksum algorithm name (case-insensitive, e.g. "md5", "sha256"); if not supported, verification is skipped and the function returns True.
+        
+        Returns:
+            bool: `True` if the checksum is unsupported or matches the expected value.
+        
+        Raises:
+            ChecksumMismatchError: If the computed checksum does not match `expected_checksum`.
+        """
         logger.debug("Verifying checksum for %s", file_path)
         checksum_type = checksum_type.lower()
         if checksum_type not in self.HASH_ALGORITHMS:
@@ -396,7 +409,22 @@ class FileDownloader:
         decryptor: Any | None,
         on_progress: ProgressCallback | None,
     ) -> bool:
-        """Perform actual file download."""
+        """
+        Download the file from download_url into temp_path, optionally resuming and streaming into the open file.
+        
+        Parameters:
+            task (DownloadTask): The download task carrying progress and configuration.
+            temp_path (Path): Path to the temporary file to write into (will be opened in append mode if resuming).
+            download_url (str): URL to request the file data from.
+            headers (dict[str, str]): HTTP headers to include with the request.
+            cookies (dict[str, str]): Cookies to include with the request.
+            resume_pos (int): Byte offset to resume from; if > 0 the file is opened in append mode and Content-Length (if present) is added to this offset.
+            decryptor (Any|None): Optional decryptor to apply to each chunk before writing (None disables decryption).
+            on_progress (ProgressCallback|None): Optional callback invoked with the task to report progress during streaming.
+        
+        Returns:
+            bool: `True` if the download and streaming completed (or a 416 response indicates the existing temp file is already valid), `False` otherwise.
+        """
         logger.debug("Downloading task=%s to %s", task.task_id, task.output_path)
         mode: Literal["ab", "wb"] = "ab" if resume_pos > 0 else "wb"
 
@@ -428,7 +456,15 @@ class FileDownloader:
         temp_path: Path,
         on_progress: ProgressCallback | None,
     ) -> bool:
-        """Finalize download by renaming temp file and verifying checksum."""
+        """
+        Finalize a completed download by moving the temporary file to its final location, applying final permissions, optionally verifying the file checksum, and updating the task's progress status.
+        
+        @returns:
+            True if finalization completed successfully.
+        
+        @raises ChecksumMismatchError:
+            If checksum verification is enabled and the computed checksum does not match the expected value.
+        """
         logger.debug("Finalizing download: temp=%s -> output=%s", temp_path, output_path)
         temp_path.rename(output_path)
         output_path.chmod(0o644)

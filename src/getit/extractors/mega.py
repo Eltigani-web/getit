@@ -26,6 +26,15 @@ logger = logging.getLogger(__name__)
 
 
 def a32_to_str(a: list[int]) -> bytes:
+    """
+    Convert a list of 32-bit unsigned integers to a big-endian byte string.
+    
+    Parameters:
+        a (list[int]): List of 32-bit unsigned integers to encode.
+    
+    Returns:
+        bytes: Big-endian byte sequence representing the concatenation of the input integers.
+    """
     return struct.pack(f">{len(a)}I", *a)
 
 
@@ -76,12 +85,31 @@ class MegaExtractor(BaseExtractor):
     API_URL = "https://g.api.mega.co.nz/cs"
 
     def __init__(self, http_client: HTTPClient):
+        """
+        Initialize the MegaExtractor instance and configure its request pacing and sequence state.
+        
+        Sets up:
+        - _session_id: session identifier (None until established).
+        - _sequence_num: random 32-bit sequence number for API requests.
+        - _pacer: backoff controller with min_backoff=0.4s, max_backoff=5.0s, flood_sleep=30.0s used to throttle retries.
+        """
         super().__init__(http_client)
         self._session_id: str | None = None
         self._sequence_num = random.randint(0, 0xFFFFFFFF)
         self._pacer = Pacer(min_backoff=0.4, max_backoff=5.0, flood_sleep=30.0)
 
     def _derive_key(self, key_a32: list[int]) -> list[int]:
+        """
+        Derives a 4-word AES key from a list of 32-bit words.
+        
+        If `key_a32` contains eight 32-bit words, produces a 4-word key by XOR-ing the first four words with the corresponding last four words. If `key_a32` contains fewer than eight words, returns the first four words.
+        
+        Parameters:
+            key_a32 (list[int]): List of 32-bit integers representing the input key material.
+        
+        Returns:
+            list[int]: A list of four 32-bit integers to be used as the derived AES key.
+        """
         if len(key_a32) == 8:
             return [
                 key_a32[0] ^ key_a32[4],
@@ -107,6 +135,12 @@ class MegaExtractor(BaseExtractor):
         return None
 
     def _is_folder(self, url: str) -> bool:
+        """
+        Check whether a Mega URL refers to a folder.
+        
+        Returns:
+            `true` if the URL matches the extractor's pattern and represents a folder, `false` otherwise.
+        """
         match = self.URL_PATTERN.match(url)
         if match:
             return match.group("type") == "folder" or match.group("legacy_type") == "F"
@@ -118,6 +152,18 @@ class MegaExtractor(BaseExtractor):
         query_params: dict[str, str] | None = None,
         max_retries: int = 3,
     ) -> Any:
+        """
+        Send a JSON request to the Mega API endpoint with automatic retries, backoff pacing, and mapping of numeric API error codes to exceptions.
+        
+        Parameters:
+            data (list[dict[str, Any]]): List of request objects to send as the JSON body.
+            query_params (dict[str, str] | None): Optional query parameters to include in the request URL.
+            max_retries (int): Maximum number of retry attempts on transient failures.
+        
+        Returns:
+            The parsed JSON response. If the response is a list, returns the first element; otherwise returns the raw parsed value.
+        
+        """
         self._pacer.reset()
 
         for attempt in range(max_retries + 1):
@@ -166,6 +212,25 @@ class MegaExtractor(BaseExtractor):
                 logger.info(f"Retrying Mega API request (attempt {attempt + 1}/{max_retries})")
 
     async def _get_file_info(self, file_id: str, file_key: str) -> dict[str, Any]:
+        """
+        Retrieve and decrypt metadata for a Mega file.
+        
+        Parameters:
+            file_id (str): Mega file node id.
+            file_key (str): URL-safe base64 file key (as present in Mega file URLs or fragments).
+        
+        Returns:
+            dict[str, Any]: Metadata dictionary with keys:
+                - id: the file id
+                - name: filename (from decrypted attributes, or "unknown")
+                - size: file size in bytes (0 if missing)
+                - download_url: direct download URL if provided (empty string if missing)
+                - key: derived 4-int AES key as a list of 32-bit integers
+                - key_str: the original file_key string
+        
+        Raises:
+            ExtractorError: if the API response does not contain the required attributes.
+        """
         data = [{"a": "g", "g": 1, "p": file_id}]
         result = await self._api_request(data)
 
@@ -229,6 +294,20 @@ class MegaExtractor(BaseExtractor):
         return key_bytes, iv_bytes
 
     async def extract(self, url: str, password: str | None = None) -> list[FileInfo]:
+        """
+        Extracts file information from a Mega URL, resolving download URLs and associated decryption parameters for files or folders.
+        
+        Parameters:
+            url (str): The Mega URL pointing to a file or folder.
+            password (str | None): Optional password (unused for normal Mega links; reserved for compatible interface).
+        
+        Returns:
+            list[FileInfo]: A list of FileInfo objects. For a file URL the list contains a single entry; for a folder URL it contains one entry per file. Each FileInfo includes filename, size, direct_url, and encryption_key/encryption_iv when the file is encrypted.
+        
+        Raises:
+            ExtractorError: If the URL is missing an ID or decryption key, or if extraction fails after retrying.
+            NotFound: If the referenced Mega resource does not exist (propagated).
+        """
         file_id = self.extract_id(url)
         file_key = self._extract_key(url)
 
@@ -273,6 +352,19 @@ class MegaExtractor(BaseExtractor):
                 logger.info(f"Retrying Mega extraction (attempt {attempt + 1}/{max_retries})")
 
     async def _extract_folder_files(self, folder_id: str, folder_key: str) -> list[FileInfo]:
+        """
+        Retrieve file entries for a Mega folder and construct FileInfo objects for each file.
+        
+        Parameters:
+        	folder_id (str): The Mega folder identifier.
+        	folder_key (str): The URL-safe base64 folder key string used to derive per-file encryption keys.
+        
+        Returns:
+        	list[FileInfo]: A list of FileInfo objects for files in the folder; each FileInfo includes filename, size, direct download URL, and encryption key/IV.
+        
+        Raises:
+        	ExtractorError: If folder extraction fails after retry attempts.
+        """
         max_retries = 3
         self._pacer.reset()
 
@@ -324,6 +416,16 @@ class MegaExtractor(BaseExtractor):
         return []
 
     async def extract_folder(self, url: str, password: str | None = None) -> FolderInfo | None:
+        """
+        Extracts folder metadata and its contained files from a Mega folder URL.
+        
+        Parameters:
+            url (str): The Mega URL expected to point to a folder.
+            password (str | None): Optional password parameter (not used by this extractor).
+        
+        Returns:
+            FolderInfo | None: A FolderInfo populated with folder URL, name, and list of files if the URL is a valid Mega folder with a key; otherwise `None`.
+        """
         if not self._is_folder(url):
             return None
 

@@ -164,6 +164,19 @@ class DownloadManager:
         task: DownloadTask,
         on_progress: ProgressCallback | None,
     ) -> DownloadResult:
+        """
+        Start and execute a download for a single DownloadTask, returning its result.
+        
+        Parameters:
+            task (DownloadTask): The download task to execute.
+            on_progress (ProgressCallback | None): Optional callback invoked with progress updates.
+        
+        Returns:
+            DownloadResult: A result representing success, failure with an error message, or cancellation.
+        
+        Raises:
+            RuntimeError: If the DownloadManager has not been started.
+        """
         if not self._http or not self._semaphore:
             raise RuntimeError("DownloadManager not started")
 

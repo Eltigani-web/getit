@@ -47,11 +47,22 @@ class MediaFireExtractor(BaseExtractor):
     ]
 
     def __init__(self, http_client: HTTPClient):
+        """
+        Initialize the extractor with an HTTP client and configure a Pacer for retry/backoff behavior.
+        
+        Creates an instance-level Pacer configured with min_backoff=0.4, max_backoff=5.0, and flood_sleep=30.0 to manage request backoff and IP flood handling.
+        """
         super().__init__(http_client)
         self._pacer = Pacer(min_backoff=0.4, max_backoff=5.0, flood_sleep=30.0)
 
     @classmethod
     def can_handle(cls, url: str) -> bool:
+        """
+        Check whether the given URL is a MediaFire file or folder URL.
+        
+        Returns:
+            True if the URL matches the extractor's file or folder pattern, False otherwise.
+        """
         return bool(cls.URL_PATTERN.match(url) or cls.FOLDER_PATTERN.match(url))
 
     @classmethod
@@ -77,6 +88,18 @@ class MediaFireExtractor(BaseExtractor):
         return None
 
     async def _get_direct_link_html(self, url: str) -> tuple[str, str, int] | None:
+        """
+        Extracts a direct download URL, filename, and size from a MediaFire file page HTML.
+        
+        Parameters:
+            url (str): The MediaFire page URL to fetch and parse.
+        
+        Returns:
+            tuple[str, str, int] | None: `(direct_url, filename, size)` when a downloadable link is found; `None` if no direct link could be extracted.
+        
+        Raises:
+            ExtractorError: If a CAPTCHA is detected on the page which prevents automatic extraction.
+        """
         try:
             text = await self.http.get_text(url)
             soup = BeautifulSoup(text, "lxml")
@@ -148,6 +171,20 @@ class MediaFireExtractor(BaseExtractor):
         return files
 
     async def extract(self, url: str, password: str | None = None) -> list[FileInfo]:
+        """
+        Extracts file or folder FileInfo entries from a MediaFire URL.
+        
+        Parameters:
+            url (str): MediaFire file or folder URL to extract.
+            password (str | None): Optional password (not used by this extractor).
+        
+        Returns:
+            list[FileInfo]: A list of FileInfo objects for the file or files found.
+        
+        Raises:
+            ExtractorError: If the URL does not contain a valid ID or extraction fails after retries.
+            NotFound: If a download link cannot be located for the given URL.
+        """
         file_id = self.extract_id(url)
         if not file_id:
             raise ExtractorError(f"Could not extract file ID from {url}")
@@ -198,6 +235,15 @@ class MediaFireExtractor(BaseExtractor):
                 logger.info(f"Retrying MediaFire extraction (attempt {attempt + 1}/{max_retries})")
 
     async def _extract_folder_files(self, folder_key: str) -> list[FileInfo]:
+        """
+        Fetches all files listed in a MediaFire folder and returns their extracted FileInfo entries.
+        
+        Parameters:
+            folder_key (str): The MediaFire folder identifier (folder key).
+        
+        Returns:
+            list[FileInfo]: A list of FileInfo objects for every file found in the folder.
+        """
         folder_files = await self._get_folder_contents(folder_key)
         files: list[FileInfo] = []
 
@@ -210,6 +256,18 @@ class MediaFireExtractor(BaseExtractor):
         return files
 
     async def extract_folder(self, url: str, password: str | None = None) -> FolderInfo | None:
+        """
+        Create and return a FolderInfo for the given MediaFire folder URL.
+        
+        If the URL denotes a MediaFire folder and a folder id can be extracted, returns a FolderInfo whose `files` list is populated by fetching the folder's contents; otherwise returns None.
+        
+        Parameters:
+            url (str): The MediaFire URL to inspect.
+            password (str | None): Ignored for MediaFire folders (accepted for API compatibility).
+        
+        Returns:
+            FolderInfo | None: FolderInfo with populated `files` if the URL is a folder and the folder id was found, `None` otherwise.
+        """
         if not self._is_folder(url):
             return None
 
@@ -223,15 +281,15 @@ class MediaFireExtractor(BaseExtractor):
 
     def verify_hash(self, file_path: str, expected_hash: str, hash_type: str = "sha256") -> bool:
         """
-        Verify file hash matches expected value.
-
-        Args:
-            file_path: Path to file to verify
-            expected_hash: Expected hash value
-            hash_type: Hash algorithm (md5 or sha256)
-
+        Check whether the checksum of the file at file_path matches the provided expected_hash.
+        
+        Parameters:
+            file_path (str): Path to the local file to verify.
+            expected_hash (str): Expected hash string to compare against (hexadecimal).
+            hash_type (str): Hash algorithm to use; "md5" for MD5, anything else selects SHA-256.
+        
         Returns:
-            True if hash matches, False otherwise
+            bool: `True` if the computed hash equals `expected_hash` (comparison is case-insensitive), `False` otherwise.
         """
         try:
             hash_func = hashlib.md5 if hash_type.lower() == "md5" else hashlib.sha256
