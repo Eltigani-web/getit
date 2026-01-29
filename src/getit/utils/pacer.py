@@ -6,6 +6,7 @@ import random
 import re
 from typing import TYPE_CHECKING
 
+import aiohttp
 from bs4 import BeautifulSoup
 
 if TYPE_CHECKING:
@@ -276,18 +277,14 @@ async def wait_for_retry_with_pacer(
             await http_client.get(url)
             pacer.reset()
             return True
-        except Exception as e:
+        except aiohttp.ClientResponseError as e:
             if attempt == max_retries or not is_retryable:
                 return False
 
             # Handle rate-limited responses
-            if hasattr(e, "response"):
-                try:
-                    response_text = await e.response.text()
-                    if await pacer.handle_rate_limited(response_text):
-                        continue
-                except Exception:
-                    pass
+            response_text = str(e)
+            if await pacer.handle_rate_limited(response_text):
+                continue
 
             # Standard backoff
             await pacer.sleep()
