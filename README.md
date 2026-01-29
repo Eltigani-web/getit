@@ -136,6 +136,10 @@ We welcome contributions!
 2. **Setup**: `pip install -e ".[dev]"`
 3. **Test**: `pytest`
 
+### Production Readiness
+
+For detailed information about the project's production readiness status, risk register, and mitigation plans, see the [Production Readiness Scorecard](PRODUCTION_READINESS.md).
+
 ### Architecture Overview
 
 - **`core/downloader.py`**: Async engine handling HTTP streams and decryption.
