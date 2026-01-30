@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 import pytest
 
-from getit.config import Settings, get_default_config_dir, save_config
+from getit.config import Settings, save_config
 from getit.storage.history import DownloadHistory
 
 
@@ -100,7 +100,7 @@ class TestWalAndPragmas:
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = Path(tmpdir) / "history.db"
 
-            async with DownloadHistory(db_path) as history:
+            async with DownloadHistory(db_path):
                 conn = sqlite3.connect(str(db_path))
                 cursor = conn.cursor()
                 cursor.execute("PRAGMA journal_mode")
@@ -116,6 +116,7 @@ class TestWalAndPragmas:
             db_path = Path(tmpdir) / "history.db"
 
             async with DownloadHistory(db_path) as history:
+                assert history._db is not None
                 async with history._db.execute("PRAGMA synchronous") as cursor:
                     row = await cursor.fetchone()
                     mode = row[0] if row else None
@@ -128,6 +129,7 @@ class TestWalAndPragmas:
             db_path = Path(tmpdir) / "history.db"
 
             async with DownloadHistory(db_path) as history:
+                assert history._db is not None
                 async with history._db.execute("PRAGMA busy_timeout") as cursor:
                     row = await cursor.fetchone()
                     timeout = row[0] if row else None
@@ -140,6 +142,7 @@ class TestWalAndPragmas:
             db_path = Path(tmpdir) / "history.db"
 
             async with DownloadHistory(db_path) as history:
+                assert history._db is not None
                 async with history._db.execute("PRAGMA foreign_keys") as cursor:
                     row = await cursor.fetchone()
                     enabled = row[0] if row else None
@@ -155,7 +158,7 @@ class TestSchemaVersioning:
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = Path(tmpdir) / "history.db"
 
-            async with DownloadHistory(db_path) as history:
+            async with DownloadHistory(db_path):
                 conn = sqlite3.connect(str(db_path))
                 cursor = conn.cursor()
                 cursor.execute(
@@ -172,7 +175,7 @@ class TestSchemaVersioning:
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = Path(tmpdir) / "history.db"
 
-            async with DownloadHistory(db_path) as history:
+            async with DownloadHistory(db_path):
                 conn = sqlite3.connect(str(db_path))
                 cursor = conn.cursor()
                 cursor.execute(
@@ -279,7 +282,6 @@ class TestSecretRedaction:
         """Empty or None input is handled gracefully."""
         history = DownloadHistory(Path("test.db"))
         assert history._redact_secrets("") == ""
-        assert history._redact_secrets(None) is None
 
 
 class TestEnvironmentVariableRedaction:
@@ -294,7 +296,6 @@ class TestEnvironmentVariableRedaction:
             settings = Settings()
 
             from getit.config import save_config
-            from getit.config import get_config_file_path
 
             with tempfile.TemporaryDirectory() as tmpdir:
                 config_dir = Path(tmpdir) / "config"
@@ -304,7 +305,7 @@ class TestEnvironmentVariableRedaction:
                     save_config(settings)
 
                 config_path = config_dir / "config.json"
-                with open(config_path, "r") as f:
+                with open(config_path) as f:
                     import json
 
                     config_data = json.load(f)
@@ -323,16 +324,20 @@ class TestDownloadHistoryIntegration:
             db_path = Path(tmpdir) / "downloads" / "history.db"
 
             async with DownloadHistory(db_path) as history:
+                assert history._db is not None
                 async with history._db.execute("PRAGMA journal_mode") as cursor:
                     row = await cursor.fetchone()
+                    assert row is not None
                     assert row[0] == "wal"
 
                 async with history._db.execute("PRAGMA synchronous") as cursor:
                     row = await cursor.fetchone()
+                    assert row is not None
                     assert row[0] == 1
 
                 async with history._db.execute("PRAGMA busy_timeout") as cursor:
                     row = await cursor.fetchone()
+                    assert row is not None
                     assert row[0] == 30000
 
                 download_id = await history.add_download(

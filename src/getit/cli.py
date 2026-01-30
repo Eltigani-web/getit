@@ -26,7 +26,6 @@ from getit.core.manager import DownloadManager, DownloadResult
 from getit.extractors.base import FileInfo
 from getit.utils.logging import (
     get_logger,
-    get_run_id,
     set_download_id,
     set_run_id,
     setup_logging,

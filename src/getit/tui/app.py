@@ -767,7 +767,7 @@ class GetItApp(App):
         result = await self.push_screen_wait(AddUrlScreen())
         if result:
             urls, password, custom_folder = result
-            await self._add_urls(urls, password, custom_folder)
+            self._add_urls(urls, password, custom_folder)
 
     @work(exclusive=False)
     async def _add_urls(

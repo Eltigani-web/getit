@@ -1,7 +1,6 @@
 """Tests for GoFile extractor."""
 
-import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -43,7 +42,6 @@ class TestGoFileExtractor:
 class TestGoFileStatusErrors:
     def test_status_error_not_found(self, mock_http):
         """error-notFound raises NotFound."""
-        from getit.extractors.base import NotFound
 
         extractor = GoFileExtractor(mock_http)
         with pytest.raises(NotFound):
@@ -51,7 +49,6 @@ class TestGoFileStatusErrors:
 
     def test_status_error_password_required(self, mock_http):
         """error-passwordRequired raises PasswordRequired."""
-        from getit.extractors.base import PasswordRequired
 
         extractor = GoFileExtractor(mock_http)
         with pytest.raises(PasswordRequired):
@@ -138,7 +135,7 @@ class TestGoFileRateLimiting:
 
         mock_http.get_json = AsyncMock(side_effect=Exception("500 Internal Server Error"))
 
-        with pytest.raises(Exception):
+        with pytest.raises(Exception, match="500 Internal Server Error"):
             await extractor._get_content("abc123")
 
 

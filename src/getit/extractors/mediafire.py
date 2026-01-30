@@ -198,6 +198,8 @@ class MediaFireExtractor(BaseExtractor):
                 await self._pacer.sleep(attempt)
                 logger.info(f"Retrying MediaFire extraction (attempt {attempt + 1}/{max_retries})")
 
+        raise ExtractorError(f"Failed after {max_retries} retries")
+
     async def _extract_folder_files(self, folder_key: str) -> list[FileInfo]:
         folder_files = await self._get_folder_contents(folder_key)
         files: list[FileInfo] = []

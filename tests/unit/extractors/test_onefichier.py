@@ -1,11 +1,10 @@
 """Tests for 1Fichier extractor."""
 
-import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from getit.extractors.base import ExtractorError, PasswordRequired
+from getit.extractors.base import PasswordRequired
 from getit.extractors.onefichier import OneFichierExtractor
 from getit.utils.http import HTTPClient
 

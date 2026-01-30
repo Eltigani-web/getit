@@ -110,6 +110,17 @@ class HTTPClient:
                 pass
         return None
 
+    def _parse_retry_after_from_error(self, error: aiohttp.ClientResponseError) -> float | None:
+        """Parse Retry-After from ClientResponseError headers."""
+        if error.headers:
+            retry_after = error.headers.get("Retry-After")
+            if retry_after:
+                try:
+                    return float(retry_after)
+                except ValueError:
+                    pass
+        return None
+
     def _is_rate_limited(self, error: Exception) -> bool:
         if isinstance(error, aiohttp.ClientResponseError):
             return error.status == 429
@@ -127,7 +138,7 @@ class HTTPClient:
                 return result
             except aiohttp.ClientResponseError as e:
                 if e.status == 429:
-                    retry_after = self._parse_retry_after(e)
+                    retry_after = self._parse_retry_after_from_error(e)
                     if attempt < self._max_retries:
                         backoff = self._calculate_backoff(attempt, retry_after)
                         await asyncio.sleep(backoff)
@@ -161,7 +172,7 @@ class HTTPClient:
                 force_close=False,
                 keepalive_timeout=300,
                 ttl_dns_cache=300,
-                ssl=self._ssl_context,
+                ssl=self._ssl_context if self._ssl_context is not None else True,
             )
             self._session = aiohttp.ClientSession(
                 connector=connector,
@@ -271,7 +282,7 @@ class HTTPClient:
                     yield chunk, downloaded, total
                 except StopAsyncIteration:
                     break
-                except asyncio.TimeoutError as e:
+                except TimeoutError as e:
                     raise TimeoutError(
                         f"Chunk download timeout after {self._chunk_timeout}s"
                     ) from e

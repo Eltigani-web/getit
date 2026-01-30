@@ -1,13 +1,12 @@
 """Tests for TOCTOU race condition handling in file naming."""
 
-import asyncio
 import os
 import tempfile
-from pathlib import Path
-from getit.utils.sanitize import sanitize_filename
+
+import pytest
+
 from getit.core.manager import DownloadManager
 from getit.extractors.base import FileInfo
-import pytest
 
 
 class TestToctouRace:
@@ -54,7 +53,7 @@ class TestToctouRace:
         manager = DownloadManager(output_dir=tmp_path, enable_resume=False)
 
         paths = []
-        for i in range(3):
+        for _ in range(3):
             file_info = FileInfo(url="http://example.com/file", filename="test.txt", size=1000)
             task = manager.create_task(file_info)
             task.output_path.touch()

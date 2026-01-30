@@ -280,7 +280,14 @@ shutdown_logging()
     print("STDOUT:", result.stdout)
 
     # Should be JSON when piped (non-TTY)
-    line = result.stdout.strip()
+    # Filter to lines with run_id context (skip "Logging initialized")
+    lines = [line for line in result.stdout.strip().split("\n") if line]
+    context_lines = [line for line in lines if "auto-detect-test" in line]
+    assert len(context_lines) >= 1, (
+        f"Expected at least 1 log line with context, got {len(context_lines)}"
+    )
+
+    line = context_lines[0]
     try:
         log_entry = json.loads(line)
         assert log_entry["run_id"] == "auto-detect-test"

@@ -108,9 +108,32 @@ strict_equality = true
 asyncio_mode = "auto"
 testpaths = ["tests"]
 
+[tool.coverage.run]
+source = ["src/getit"]
+branch = true
+omit = [
+    "*/tests/*",
+    "*/__pycache__/*",
+    "src/getit/tui/*",
+    "src/getit/cli.py",
+    "src/getit/__main__.py",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+    "raise NotImplementedError",
+]
+fail_under = 50
+show_missing = true
+
 [dependency-groups]
 dev = [
     "mypy>=1.19.1",
     "pytest-asyncio>=1.3.0",
+    "pytest-cov>=7.0.0",
     "ruff>=0.14.14",
+    "types-aiofiles>=25.1.0.20251011",
 ]

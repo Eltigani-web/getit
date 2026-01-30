@@ -1,11 +1,12 @@
 import asyncio
 import os
+import ssl
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from getit.config import Settings
-from getit.utils.http import HTTPClient, RateLimitError
+from getit.utils.http import HTTPClient
 
 
 @pytest.fixture
@@ -71,15 +72,23 @@ class TestProxySupport:
 class TestTLSCertificateSupport:
     def test_ssl_cert_file_env_var_detected(self, monkeypatch):
         monkeypatch.setenv("SSL_CERT_FILE", "/path/to/cert.pem")
-        client = HTTPClient()
-        ssl_context = client._get_ssl_context()
-        assert ssl_context is None
+        mock_ctx = MagicMock(spec=ssl.SSLContext)
+        with patch("ssl.create_default_context", return_value=mock_ctx):
+            client = HTTPClient()
+            assert client._ssl_context is not None
+            mock_ctx.load_verify_locations.assert_called_once_with(
+                cafile="/path/to/cert.pem", capath=None
+            )
 
     def test_ssl_cert_dir_env_var_detected(self, monkeypatch):
         monkeypatch.setenv("SSL_CERT_DIR", "/path/to/certs")
-        client = HTTPClient()
-        ssl_context = client._get_ssl_context()
-        assert ssl_context is None
+        mock_ctx = MagicMock(spec=ssl.SSLContext)
+        with patch("ssl.create_default_context", return_value=mock_ctx):
+            client = HTTPClient()
+            assert client._ssl_context is not None
+            mock_ctx.load_verify_locations.assert_called_once_with(
+                cafile=None, capath="/path/to/certs"
+            )
 
     def test_no_ssl_env_vars_returns_none(self):
         client = HTTPClient()

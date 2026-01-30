@@ -1,10 +1,9 @@
 """Tests for Mega extractor."""
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 
-from getit.extractors.base import ExtractorError, NotFound
 from getit.extractors.mega import MegaExtractor
 from getit.utils.http import HTTPClient
 

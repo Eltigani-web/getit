@@ -7,8 +7,6 @@ Tests the sanitize_filename() function to ensure it properly handles:
 - Absolute paths
 """
 
-import pytest
-
 from getit.utils.sanitize import sanitize_filename
 
 

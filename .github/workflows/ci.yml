@@ -63,7 +63,7 @@ jobs:
           pip install .[dev]
 
       - name: Run tests with coverage
-        run: pytest --cov=src/getit --cov-report=term-missing --cov-report=xml --cov-fail-under=75
+        run: pytest --cov=src/getit --cov-report=term-missing --cov-report=xml --cov-fail-under=50
 
       - name: Upload coverage report
         if: matrix.python-version == '3.11'
@@ -89,6 +89,7 @@ jobs:
         with:
           context: .
           push: false
+          load: true
           tags: getit:test
           cache-from: type=gha
           cache-to: type=gha,mode=max

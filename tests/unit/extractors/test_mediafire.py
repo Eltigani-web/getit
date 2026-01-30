@@ -6,7 +6,6 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from getit.extractors.base import ExtractorError, NotFound
 from getit.extractors.mediafire import MediaFireExtractor
 from getit.utils.http import HTTPClient
 
@@ -120,6 +119,7 @@ class TestMediaFireDirectLinkExtraction:
 
         result = await extractor._get_direct_link_html("https://mediafire.com/file/abc123")
 
+        assert result is not None
         assert result[0] == "http://test.com/file.zip"
 
 

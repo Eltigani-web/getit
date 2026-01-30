@@ -230,10 +230,7 @@ class Pacer:
             return True
 
         # Check for wait page
-        if await self.parse_and_wait(response_text):
-            return True
-
-        return False
+        return bool(await self.parse_and_wait(response_text))
 
     @property
     def attempt_count(self) -> int:
