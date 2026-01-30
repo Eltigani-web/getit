@@ -5,17 +5,14 @@ import logging
 import os
 import random
 import ssl
-from collections.abc import Awaitable, Callable
-from typing import TYPE_CHECKING, Any
+from collections.abc import AsyncIterator, Awaitable, Callable
+from typing import Any
+import inspect
 
 import aiohttp
 from aiolimiter import AsyncLimiter
 
-if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
-
 from getit import __version__
-
 
 """HTTP client wrapper for aiohttp with rate limiting and retry logic.
 
@@ -257,7 +254,11 @@ class HTTPClient:
             async with self.session.get(
                 url, headers=headers, params=params, cookies=cookies
             ) as resp:
-                resp.raise_for_status()
+                raise_for_status = resp.raise_for_status
+                if inspect.iscoroutinefunction(raise_for_status):
+                    await raise_for_status()
+                else:
+                    raise_for_status()
                 return await resp.json()
 
         return await self._with_retry(
@@ -276,7 +277,11 @@ class HTTPClient:
             async with self.session.get(
                 url, headers=headers, params=params, cookies=cookies
             ) as resp:
-                resp.raise_for_status()
+                raise_for_status = resp.raise_for_status
+                if inspect.iscoroutinefunction(raise_for_status):
+                    await raise_for_status()
+                else:
+                    raise_for_status()
                 return await resp.text()
 
         return await self._with_retry(
@@ -292,7 +297,11 @@ class HTTPClient:
         chunk_size: int = 1024 * 1024,
     ) -> AsyncIterator[tuple[bytes, int, int]]:
         async with self._limiter, self.session.get(url, headers=headers, cookies=cookies) as resp:
-            resp.raise_for_status()
+            raise_for_status = resp.raise_for_status
+            if inspect.iscoroutinefunction(raise_for_status):
+                await raise_for_status()
+            else:
+                raise_for_status()
             total = int(resp.headers.get("content-length", 0))
             downloaded = 0
             chunk_iter = resp.content.iter_chunked(chunk_size)

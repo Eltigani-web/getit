@@ -292,9 +292,8 @@ def shutdown_logging() -> None:
         _async_handler.stop_listener()
 
         # Remove handler from both loggers to prevent accumulation across setup/shutdown cycles
-        if _logger:
-            if _async_handler in _logger.handlers:
-                _logger.removeHandler(_async_handler)
+        if _logger and _async_handler in _logger.handlers:
+            _logger.removeHandler(_async_handler)
 
         root_logger = logging.getLogger()
         if _async_handler in root_logger.handlers:

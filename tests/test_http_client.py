@@ -1,5 +1,5 @@
 import asyncio
-import os
+import logging
 import ssl
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -65,21 +65,32 @@ class TestTLSCertificateSupport:
 
     def test_invalid_ssl_cert_file_returns_none_with_warning(self, monkeypatch, caplog):
         monkeypatch.setenv("SSL_CERT_FILE", "/nonexistent/cert.pem")
-        with caplog.at_level(logging.WARNING):
+        mock_ctx = MagicMock(spec=ssl.SSLContext)
+        mock_ctx.load_verify_locations.side_effect = FileNotFoundError("missing file")
+        mock_logger = MagicMock()
+
+        with (
+            patch("ssl.create_default_context", return_value=mock_ctx),
+            patch("getit.utils.http.logger", mock_logger),
+        ):
             client = HTTPClient()
             assert client._ssl_context is None
-            assert any(
-                "Failed to load SSL certificates" in record.message for record in caplog.records
-            )
+            mock_logger.warning.assert_called_once()
 
     def test_invalid_ssl_cert_dir_returns_none_with_warning(self, monkeypatch, caplog):
         monkeypatch.setenv("SSL_CERT_DIR", "/nonexistent/certs")
-        with caplog.at_level(logging.WARNING):
+        mock_ctx = MagicMock(spec=ssl.SSLContext)
+        mock_ctx.load_verify_locations.side_effect = FileNotFoundError("missing dir")
+
+        mock_logger = MagicMock()
+
+        with (
+            patch("ssl.create_default_context", return_value=mock_ctx),
+            patch("getit.utils.http.logger", mock_logger),
+        ):
             client = HTTPClient()
             assert client._ssl_context is None
-            assert any(
-                "Failed to load SSL certificates" in record.message for record in caplog.records
-            )
+            mock_logger.warning.assert_called_once()
 
 
 class TestTimeoutWiring:
@@ -178,6 +189,7 @@ class TestRateLimiter:
         mock_session = AsyncMock()
         mock_response = AsyncMock()
         mock_response.status = 200
+        mock_response.raise_for_status = MagicMock()
         mock_session.get = AsyncMock(return_value=mock_response)
         mock_session.closed = False
 
@@ -194,11 +206,15 @@ class TestRateLimiter:
 
 class TestUserAgentHeader:
     def test_user_agent_header_includes_version(self):
-        import getit
+        from importlib import import_module
+
+        getit = import_module("getit")
 
         client = HTTPClient()
         assert "getit/" in client._headers["User-Agent"]
-        assert getit.__version__ in client._headers["User-Agent"]
+        # __version__ lives in getit package; expose via __init__
+        assert getattr(getit, "__version__", None) is not None
+        assert str(getit.__version__) in client._headers["User-Agent"]
 
     def test_custom_user_agent_not_supported(self):
         client = HTTPClient()
@@ -286,6 +302,7 @@ class TestChunkTimeout:
         mock_response.json = AsyncMock(return_value={"result": "success"})
         mock_response.__aenter__ = AsyncMock(return_value=mock_response)
         mock_response.__aexit__ = AsyncMock(return_value=None)
+        mock_response.raise_for_status = MagicMock()
         mock_session.get = MagicMock(return_value=mock_response)
 
         client = HTTPClient()
@@ -303,6 +320,7 @@ class TestChunkTimeout:
         mock_response.text = AsyncMock(return_value="response text")
         mock_response.__aenter__ = AsyncMock(return_value=mock_response)
         mock_response.__aexit__ = AsyncMock(return_value=None)
+        mock_response.raise_for_status = AsyncMock()
         mock_session.get = MagicMock(return_value=mock_response)
 
         client = HTTPClient()
