@@ -14,6 +14,7 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         gcc \
         g++ \
+        git \
         libxml2-dev \
         libxslt-dev \
         pkg-config \
