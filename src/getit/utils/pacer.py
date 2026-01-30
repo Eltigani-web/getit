@@ -272,8 +272,10 @@ async def wait_for_retry_with_pacer(
         pacer = Pacer()
 
     for attempt in range(max_retries + 1):
+        response = None
         try:
-            await http_client.get(url)
+            response = await http_client.get(url)
+            response.raise_for_status()
             pacer.reset()
             return True
         except aiohttp.ClientResponseError as e:
@@ -285,5 +287,8 @@ async def wait_for_retry_with_pacer(
                 continue
 
             await pacer.sleep()
+        finally:
+            if response is not None:
+                response.close()
 
     return False

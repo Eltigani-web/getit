@@ -87,6 +87,7 @@ class MediaFireExtractor(BaseExtractor):
 
             if self._pacer.detect_flood_ip_lock(text):
                 await self._pacer.handle_flood_ip_lock()
+                raise ExtractorError("IP locked due to flood detection, retry later")
 
             download_btn = soup.find("a", {"id": "downloadButton"})
             if download_btn:

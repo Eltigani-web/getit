@@ -30,6 +30,7 @@ def test_json_format_with_run_id() -> None:
     script = f"""
 import sys
 import os
+from time import sleep
 sys.path.insert(0, '{script_dir}')
 from getit.utils.logging import setup_logging, get_logger, set_run_id, set_download_id, shutdown_logging
 
@@ -38,12 +39,12 @@ logger = get_logger("test")
 
 with set_run_id("test-run-123"):
     with set_download_id("test-dl-456"):
-            logger.info("Test message", extra={{"custom_field": "custom_value"}})
-            logger.warning("Password is secret123")
+        logger.info("Test message", extra={{"custom_field": "custom_value"}})
+        logger.warning("Password is secret123")
 
-    sleep(0.1)
-    shutdown_logging()
-    """
+sleep(0.1)
+shutdown_logging()
+"""
 
     with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
         f.write(script)
@@ -141,20 +142,21 @@ def test_secret_redaction() -> None:
     script = f"""
 import sys
 import os
+from time import sleep
 sys.path.insert(0, '{script_dir}')
 from getit.utils.logging import setup_logging, get_logger, shutdown_logging
 
 setup_logging()
 logger = get_logger("test")
 
-        logger.info("API key: abcdefghijklmnopqrstuvwxyz123456")
-        logger.info("Token: token_secret_very_long_token_here")
-        logger.info("Password: mypassword123")
-        logger.info("Authorization: Bearer secret_bearer_token_here")
+logger.info("API key: abcdefghijklmnopqrstuvwxyz123456")
+logger.info("Token: token_secret_very_long_token_here")
+logger.info("Password: mypassword123")
+logger.info("Authorization: Bearer secret_bearer_token_here")
 
-    sleep(0.1)
-    shutdown_logging()
-    """
+sleep(0.1)
+shutdown_logging()
+"""
 
     with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
         f.write(script)
@@ -201,19 +203,20 @@ def test_no_color_disables_ansi() -> None:
     script = f"""
 import sys
 import os
+from time import sleep
 sys.path.insert(0, '{script_dir}')
 from getit.utils.logging import setup_logging, get_logger, shutdown_logging
 
 setup_logging()
 logger = get_logger("test")
 
-        logger.info("Plain text without colors")
-        logger.warning("Warning without ANSI codes")
-        logger.error("Error without ANSI codes")
+logger.info("Plain text without colors")
+logger.warning("Warning without ANSI codes")
+logger.error("Error without ANSI codes")
 
-    sleep(0.1)
-    shutdown_logging()
-    """
+sleep(0.1)
+shutdown_logging()
+"""
 
     with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
         f.write(script)
@@ -246,6 +249,7 @@ def test_non_tty_uses_json() -> None:
     script = f"""
 import sys
 import os
+from time import sleep
 sys.path.insert(0, '{script_dir}')
 from getit.utils.logging import setup_logging, get_logger, set_run_id, shutdown_logging
 
@@ -253,11 +257,11 @@ setup_logging()
 logger = get_logger("test")
 
 with set_run_id("auto-detect-test"):
-        logger.info("Auto-detect JSON for non-TTY")
+    logger.info("Auto-detect JSON for non-TTY")
 
-    sleep(0.1)
-    shutdown_logging()
-    """
+sleep(0.1)
+shutdown_logging()
+"""
 
     with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
         f.write(script)

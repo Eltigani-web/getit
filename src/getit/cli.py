@@ -25,7 +25,6 @@ from getit.core.downloader import DownloadTask
 from getit.core.manager import DownloadManager, DownloadResult
 from getit.extractors.base import FileInfo
 from getit.utils.logging import (
-    get_download_id,
     get_logger,
     get_run_id,
     set_download_id,
@@ -179,7 +178,6 @@ def download(
 
     async def run_downloads() -> None:
         with set_run_id():
-            run_id = get_run_id()
             logger.info("Starting download session", extra={"url_count": len(all_urls)})
 
             async with DownloadManager(
@@ -203,8 +201,12 @@ def download(
                             console.print(f"[red]Error extracting {url}:[/red] {e}")
                             return []
 
-                with console.status(f"[bold green]Extracting {len(all_urls)} URL(s) in parallel..."):
-                    extraction_results = await asyncio.gather(*[extract_url(url) for url in all_urls])
+                with console.status(
+                    f"[bold green]Extracting {len(all_urls)} URL(s) in parallel..."
+                ):
+                    extraction_results = await asyncio.gather(
+                        *[extract_url(url) for url in all_urls]
+                    )
 
                 for files in extraction_results:
                     for file_info in files:

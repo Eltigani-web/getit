@@ -18,14 +18,12 @@ import os
 import queue
 import re
 import sys
-import threading
 import uuid
 from contextlib import contextmanager
 from contextvars import ContextVar
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
 
 if TYPE_CHECKING:
@@ -62,7 +60,7 @@ class LogConfig:
     no_color: bool = False
 
     @classmethod
-    def from_env(cls) -> "LogConfig":
+    def from_env(cls) -> LogConfig:
         """Create config from environment variables."""
         level_str = os.getenv("LOG_LEVEL", "INFO").upper()
         try:

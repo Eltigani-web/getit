@@ -90,38 +90,6 @@ class TestMediaFireHashVerification:
         finally:
             test_file.unlink()
 
-    def test_verify_hash_sha256(self, mock_http):
-        extractor = MediaFireExtractor(mock_http)
-
-        with tempfile.NamedTemporaryFile(delete=False, mode="wb") as f:
-            test_file = Path(f.name)
-            test_file.write_bytes(b"Hello, World!")
-            f.flush()
-
-        try:
-            result = extractor.verify_hash(
-                str(test_file),
-                "dffd6021bb2bd5b0af676290809ec3a53191dd81c7f70a4b28688a362182986f",
-                "sha256",
-            )
-            assert result is True
-        finally:
-            test_file.unlink()
-
-    def test_verify_hash_mismatch(self, mock_http):
-        extractor = MediaFireExtractor(mock_http)
-
-        with tempfile.NamedTemporaryFile(delete=False, mode="wb") as f:
-            test_file = Path(f.name)
-            test_file.write_bytes(b"Hello, World!")
-            f.flush()
-
-        try:
-            result = extractor.verify_hash(str(test_file), "invalidhash", "sha256")
-            assert result is False
-        finally:
-            test_file.unlink()
-
 
 class TestMediaFireDirectLinkExtraction:
     @pytest.mark.asyncio

@@ -153,6 +153,26 @@ class MegaExtractor(BaseExtractor):
                         raise NotFound("File not found")
                     raise ExtractorError(error_codes.get(result, f"API error: {result}"))
 
+                if isinstance(result, list) and len(result) == 1 and isinstance(result[0], int):
+                    error_code = result[0]
+                    error_codes = {
+                        -2: "EARGS - Invalid arguments",
+                        -3: "EAGAIN - Temporary congestion",
+                        -4: "ERATELIMIT - Rate limit exceeded",
+                        -5: "EFAILED - Upload failed",
+                        -6: "ETOOMANY - Too many connections",
+                        -9: "ENOENT - File not found",
+                        -11: "EACCESS - Access denied",
+                        -14: "EINCOMPLETE - Incomplete request",
+                        -15: "EKEY - Invalid key",
+                        -16: "ESID - Invalid session",
+                        -17: "EBLOCKED - User blocked",
+                        -18: "EOVERQUOTA - Quota exceeded",
+                    }
+                    if error_code == -9:
+                        raise NotFound("File not found")
+                    raise ExtractorError(error_codes.get(error_code, f"API error: {error_code}"))
+
                 return result[0] if isinstance(result, list) else result
             except (ExtractorError, NotFound):
                 raise

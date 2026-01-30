@@ -199,9 +199,11 @@ class TestRateLimiter:
 
 class TestUserAgentHeader:
     def test_user_agent_header_includes_version(self):
+        import getit
+
         client = HTTPClient()
         assert "getit/" in client._headers["User-Agent"]
-        assert "0.1.0" in client._headers["User-Agent"]
+        assert getit.__version__ in client._headers["User-Agent"]
 
     def test_custom_user_agent_not_supported(self):
         client = HTTPClient()

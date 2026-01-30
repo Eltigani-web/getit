@@ -271,8 +271,10 @@ class HTTPClient:
                     yield chunk, downloaded, total
                 except StopAsyncIteration:
                     break
-                except asyncio.TimeoutError:
-                    raise TimeoutError(f"Chunk download timeout after {self._chunk_timeout}s")
+                except asyncio.TimeoutError as e:
+                    raise TimeoutError(
+                        f"Chunk download timeout after {self._chunk_timeout}s"
+                    ) from e
 
     async def get_file_info(
         self,
