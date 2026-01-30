@@ -1,0 +1,20 @@
+# MANIFEST.in for getit package distribution
+# Ensures essential files are included in source distributions
+
+# Include documentation
+include README.md
+include LICENSE
+include CHANGELOG.md
+include PRODUCTION_READINESS.md
+
+# Include all source files
+recursive-include src/getit *.py
+
+# Exclude test files from distribution
+global-exclude tests/*
+global-exclude .pytest_cache/*
+global-exclude __pycache__/*
+global-exclude *.py[cod]
+global-exclude .git/*
+global-exclude .sisyphus/*
+global-exclude .homebrew-tap/*

@@ -578,6 +578,35 @@ This release introduces significant changes to logging, configuration, and packa
 
 #### New Environment Variables
 
+The application uses Pydantic Settings with `GETIT_` prefix for configuration. All settings can be overridden via environment variables.
+
+**Core Settings (GETIT_ prefix):**
+
+| Variable | Purpose | Default | Example |
+|----------|---------|---------|---------|
+| `GETIT_DOWNLOAD_DIR` | Download directory | `~/Downloads/getit` | `/data/downloads` |
+| `GETIT_MAX_CONCURRENT_DOWNLOADS` | Parallel downloads | `3` | `5` |
+| `GETIT_MAX_CONCURRENT_CHUNKS` | Chunks per file | `4` | `8` |
+| `GETIT_CHUNK_SIZE` | Chunk size (bytes) | `1048576` | `2097152` |
+| `GETIT_MAX_RETRIES` | Retry attempts | `3` | `5` |
+| `GETIT_RETRY_DELAY` | Retry delay (seconds) | `1.0` | `2.0` |
+| `GETIT_TIMEOUT` | Request timeout (seconds) | `30.0` | `60.0` |
+| `GETIT_SPEED_LIMIT` | Speed limit (bytes/sec) | None | `1048576` |
+| `GETIT_ENABLE_RESUME` | Resume interrupted downloads | `true` | `false` |
+| `GETIT_REQUESTS_PER_SECOND` | Rate limit | `10.0` | `5.0` |
+
+**Sensitive Settings (env-only, never persisted to config.json):**
+
+| Variable | Purpose | Example |
+|----------|---------|---------|
+| `GETIT_GOFILE_TOKEN` | GoFile API token | `abc123...` |
+| `GETIT_PIXELDRAIN_API_KEY` | PixelDrain API key | `pd_...` |
+| `GETIT_MEGA_EMAIL` | Mega.nz email | `user@example.com` |
+| `GETIT_MEGA_PASSWORD` | Mega.nz password | `secretpass` |
+| `GETIT_ENCRYPTION_KEY` | Optional DB encryption | `key...` |
+
+**Logging/Proxy Settings (standard env vars):**
+
 | Variable | Purpose | Default | Example |
 |----------|---------|---------|---------|
 | `LOG_FORMAT` | Log output format | `plain` (TTY), `json` (non-TTY) | `export LOG_FORMAT=json` |
@@ -587,6 +616,28 @@ This release introduces significant changes to logging, configuration, and packa
 | `HTTPS_PROXY` | HTTPS proxy URL | - | `export HTTPS_PROXY=http://proxy:8080` |
 | `NO_PROXY` | Bypass proxy for hosts | - | `export NO_PROXY=localhost,127.0.0.1` |
 | `SSL_CERT_FILE` | Custom CA bundle | - | `export SSL_CERT_FILE=/path/to/ca-bundle.crt` |
+
+**config.json Fields (persisted settings):**
+
+The following fields are saved to `config.json` (platform-specific paths):
+- macOS: `~/Library/Application Support/getit/config.json`
+- Linux: `~/.config/getit/config.json`
+- Windows: `%APPDATA%\getit\config.json`
+
+```json
+{
+  "download_dir": "~/Downloads/getit",
+  "max_concurrent_downloads": 3,
+  "speed_limit": null,
+  "enable_resume": true,
+  "max_retries": 3,
+  "show_speed": true,
+  "show_eta": true,
+  "theme": "dark"
+}
+```
+
+Note: Sensitive fields (tokens, passwords, API keys) are **never** persisted to config.json. Set them via environment variables only.
 
 #### Breaking Changes
 

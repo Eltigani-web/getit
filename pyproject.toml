@@ -4,6 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "getit-cli"
+dynamic = ["version"]
 description = "Universal file hosting downloader with TUI - supports GoFile, PixelDrain, MediaFire, 1Fichier, Mega.nz"
 readme = "README.md"
 license = "GPL-3.0-or-later"
@@ -72,15 +73,17 @@ Homepage = "https://github.com/Eltigani-web/getit"
 Repository = "https://github.com/Eltigani-web/getit"
 Issues = "https://github.com/Eltigani-web/getit/issues"
 
+[tool.hatch.version]
+source = "vcs"
+fallback-version = "0.1.0"
+
+[tool.hatch.build.targets.sdist]
 include = [
     "/src/getit",
 ]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/getit"]
-
-[tool.hatch.version]
-source = "vcs"
 
 [tool.ruff]
 target-version = "py311"
@@ -111,4 +114,3 @@ dev = [
     "pytest-asyncio>=1.3.0",
     "ruff>=0.14.14",
 ]
-version = "0.1.0"
