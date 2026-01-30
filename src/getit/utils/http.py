@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import os
 import random
 import ssl
 from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
-import inspect
 
 import aiohttp
 from aiolimiter import AsyncLimiter

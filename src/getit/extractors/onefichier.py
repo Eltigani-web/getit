@@ -225,3 +225,6 @@ class OneFichierExtractor(BaseExtractor):
 
                 logger.info(f"Retrying 1Fichier extraction (attempt {attempt + 1}/{max_retries})")
                 await self._pacer.sleep(attempt)
+
+        # Unreachable: loop always returns or raises on final attempt
+        raise ExtractorError("Extraction failed unexpectedly")

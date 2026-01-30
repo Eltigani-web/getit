@@ -26,7 +26,7 @@ class TestExtractorErrorHandling:
     def test_base_extractor_is_abstract(self):
         """BaseExtractor cannot be instantiated directly."""
         with pytest.raises(TypeError):
-            BaseExtractor(MagicMock())
+            BaseExtractor(MagicMock())  # type: ignore[abstract]
 
     def test_extractor_error_inherits_from_exception(self):
         """ExtractorError is an Exception subclass."""

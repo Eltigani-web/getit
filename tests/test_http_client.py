@@ -1,5 +1,4 @@
 import asyncio
-import logging
 import ssl
 from unittest.mock import AsyncMock, MagicMock, patch
 
