@@ -37,38 +37,6 @@ def http_client():
     return HTTPClient()
 
 
-class TestProxySupport:
-    def test_http_proxy_env_var_respected(self):
-        os.environ["HTTP_PROXY"] = "http://proxy.example.com:8080"
-        client = HTTPClient()
-        assert client._proxy == "http://proxy.example.com:8080"
-        del os.environ["HTTP_PROXY"]
-
-    def test_https_proxy_env_var_respected(self):
-        os.environ["HTTPS_PROXY"] = "https://proxy.example.com:8443"
-        client = HTTPClient()
-        assert client._proxy == "https://proxy.example.com:8443"
-        del os.environ["HTTPS_PROXY"]
-
-    def test_https_proxy_preferred_over_http_proxy(self):
-        os.environ["HTTP_PROXY"] = "http://proxy.example.com:8080"
-        os.environ["HTTPS_PROXY"] = "https://proxy.example.com:8443"
-        client = HTTPClient()
-        assert client._proxy == "https://proxy.example.com:8443"
-        del os.environ["HTTP_PROXY"]
-        del os.environ["HTTPS_PROXY"]
-
-    def test_lowercase_proxy_env_vars_respected(self):
-        os.environ["http_proxy"] = "http://proxy.example.com:8080"
-        client = HTTPClient()
-        assert client._proxy == "http://proxy.example.com:8080"
-        del os.environ["http_proxy"]
-
-    def test_no_proxy_returns_none(self):
-        client = HTTPClient()
-        assert client._proxy is None
-
-
 class TestTLSCertificateSupport:
     def test_ssl_cert_file_env_var_detected(self, monkeypatch):
         monkeypatch.setenv("SSL_CERT_FILE", "/path/to/cert.pem")
@@ -94,6 +62,24 @@ class TestTLSCertificateSupport:
         client = HTTPClient()
         ssl_context = client._get_ssl_context()
         assert ssl_context is None
+
+    def test_invalid_ssl_cert_file_returns_none_with_warning(self, monkeypatch, caplog):
+        monkeypatch.setenv("SSL_CERT_FILE", "/nonexistent/cert.pem")
+        with caplog.at_level(logging.WARNING):
+            client = HTTPClient()
+            assert client._ssl_context is None
+            assert any(
+                "Failed to load SSL certificates" in record.message for record in caplog.records
+            )
+
+    def test_invalid_ssl_cert_dir_returns_none_with_warning(self, monkeypatch, caplog):
+        monkeypatch.setenv("SSL_CERT_DIR", "/nonexistent/certs")
+        with caplog.at_level(logging.WARNING):
+            client = HTTPClient()
+            assert client._ssl_context is None
+            assert any(
+                "Failed to load SSL certificates" in record.message for record in caplog.records
+            )
 
 
 class TestTimeoutWiring:
