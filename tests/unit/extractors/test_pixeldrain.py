@@ -103,50 +103,29 @@ class TestPixelDrainRateLimiting:
         assert mock_http.get_json.call_count == 5
 
     @pytest.mark.asyncio
-    async def test_429_retry_with_backoff(self, mock_http):
-        """Verifies 429 responses trigger retries with exponential backoff.
+    async def test_429_raises_rate_limit_error(self, mock_http):
+        """Verifies 429 responses are propagated as errors.
 
-        This test uses aiohttp.ClientResponseError to simulate 429 responses
-        which go through HTTPClient's _with_retry() logic. Verifies:
-        1. The request is retried
-        2. Exponential backoff is applied
-        3. Success is achieved after retries
+        Rate limit handling and retries are handled by the Pacer/HTTPClient
+        at a higher level. The extractor should propagate the error.
         """
         import aiohttp
 
         extractor = PixelDrainExtractor(mock_http)
 
-        # Mock first two calls to fail with 429, third to succeed
-        call_count = [0]
+        error = aiohttp.ClientResponseError(
+            request_info=MagicMock(),
+            history=(),
+            status=429,
+            message="Too many requests",
+            headers={"Retry-After": "1.0"},
+        )
+        mock_http.get_json = AsyncMock(side_effect=error)
 
-        async def mock_get_json(*args, **kwargs):
-            call_count[0] += 1
-            if call_count[0] < 3:
-                # Simulate 429 response that triggers retry logic
-                error = aiohttp.ClientResponseError(
-                    request_info=MagicMock(),
-                    history=(),
-                    status=429,
-                    message="Too many requests",
-                    headers={"Retry-After": "1.0"},
-                )
-                raise error
-            return {
-                "success": True,
-                "id": "abc123",
-                "name": "test.txt",
-                "size": 1000,
-                "hash_sha256": "abc123def456",
-            }
+        with pytest.raises(aiohttp.ClientResponseError) as exc_info:
+            await extractor._get_file_info("abc123")
 
-        mock_http.get_json = AsyncMock(side_effect=mock_get_json)
-
-        # Should succeed after retries
-        result = await extractor._get_file_info("abc123")
-
-        assert result["success"] is True
-        assert call_count[0] == 3
-        assert mock_http.get_json.call_count == 3
+        assert exc_info.value.status == 429
 
 
 class TestPixelDrainRangeResume:
@@ -303,9 +282,7 @@ class TestPixelDrainExtraction:
     @pytest.mark.asyncio
     async def test_extract_file_not_found(self, mock_http):
         """Extract raises NotFound for non-existent file."""
-        mock_http.get_json = AsyncMock(
-            return_value={"success": False, "message": "File not found"}
-        )
+        mock_http.get_json = AsyncMock(return_value={"success": False, "message": "File not found"})
 
         extractor = PixelDrainExtractor(mock_http)
 

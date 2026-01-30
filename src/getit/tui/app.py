@@ -579,7 +579,6 @@ class GetItApp(App):
         Binding("q", "quit", "Quit"),
         Binding("a", "add_url", "Add URL"),
         Binding("b", "batch_import", "Batch Import"),
-        Binding("d", "toggle_dark", "Toggle Dark Mode"),
         Binding("r", "refresh", "Refresh"),
         Binding("c", "cancel_selected", "Cancel"),
         Binding("p", "pause_resume_selected", "Pause/Resume"),
@@ -727,9 +726,6 @@ class GetItApp(App):
         status_bar = self.query_one("#status-bar", StatusBar)
         total, active, completed, failed, total_speed = _count_tasks_by_status(self.tasks)
         status_bar.update_status(total, active, completed, failed, total_speed)
-
-    def action_toggle_dark(self) -> None:
-        self.dark = not self.dark  # type: ignore[has-type]  # Textual reactive property
 
     def action_refresh(self) -> None:
         self._update_table()
