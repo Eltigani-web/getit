@@ -385,7 +385,12 @@ class ErrorDetailsScreen(ModalScreen[None]):
         self.download_task.progress.status = DownloadStatus.PENDING
         self.download_task.progress.error = None
         self.download_task.retries = 0
+        self.app.call_later(self._trigger_retry)
         self.dismiss(None)
+
+    def _trigger_retry(self) -> None:
+        if hasattr(self.app, "_start_download"):
+            self.app._start_download(self.download_task)
 
 
 class SettingsScreen(ModalScreen[None]):
@@ -845,14 +850,29 @@ class GetItApp(App):
         pending_tasks = [
             t for t in self.tasks.values() if t.progress.status == DownloadStatus.PENDING
         ]
-        for task in pending_tasks:
-            self._start_download(task)
+        if pending_tasks:
+            for task in pending_tasks:
+                self._start_download(task)
+            self.notify(f"Started {len(pending_tasks)} download(s)")
+        else:
+            self.notify("No pending downloads to start", severity="warning")
 
     @on(Button.Pressed, "#cancel-btn")
     async def on_cancel_all(self) -> None:
+        cancellable_statuses = (
+            DownloadStatus.DOWNLOADING,
+            DownloadStatus.PENDING,
+            DownloadStatus.PAUSED,
+        )
+        cancelled_count = 0
         for task in self.tasks.values():
-            if task.progress.status == DownloadStatus.DOWNLOADING:
+            if task.progress.status in cancellable_statuses:
                 task.progress.status = DownloadStatus.CANCELLED
+                cancelled_count += 1
+        if cancelled_count > 0:
+            self.notify(f"Cancelled {cancelled_count} download(s)")
+        else:
+            self.notify("No active downloads to cancel", severity="warning")
 
     @on(Button.Pressed, "#clear-btn")
     def on_clear_completed(self) -> None:
@@ -971,8 +991,13 @@ class GetItApp(App):
 
     def action_cancel_selected(self) -> None:
         task = self._get_selected_task()
-        if task:
+        if task and task.progress.status in (
+            DownloadStatus.DOWNLOADING,
+            DownloadStatus.PENDING,
+            DownloadStatus.PAUSED,
+        ):
             task.progress.status = DownloadStatus.CANCELLED
+            self.notify(f"Cancelled: {task.file_info.filename[:30]}")
 
     def action_pause_resume_selected(self) -> None:
         task = self._get_selected_task()
