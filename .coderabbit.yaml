@@ -20,6 +20,14 @@ reviews:
     - "!__pycache__/**"
     - "!.venv/**"
     - "!*.lock"
+  path_instructions:
+    - path: "**/*.py"
+      instructions: |
+        Focus on:
+        - Python best practices and idiomatic code
+        - Strict type hints compatible with Mypy
+        - Clean and responsive Terminal UI (TUI) design
+        - Efficient file handling for large downloads
 
 chat:
   auto_reply: true
@@ -29,10 +37,3 @@ knowledge_base:
     enabled: true
   code_guidelines:
     enabled: true
-
-instructions: |
-  Focus on:
-  - Python best practices and idiomatic code.
-  - Strict type hints compatible with Mypy.
-  - Clean and responsive Terminal UI (TUI) design.
-  - Efficient file handling for large downloads.
