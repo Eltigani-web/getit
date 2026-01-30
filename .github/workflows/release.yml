@@ -37,7 +37,7 @@ jobs:
         id: version
         run: |
           VERSION="${GITHUB_REF#refs/tags/v}"
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Version: $VERSION"
           
       - name: Build package
@@ -48,7 +48,7 @@ jobs:
         run: |
           WHEEL=$(ls dist/*.whl)
           SHA256=$(shasum -a 256 "$WHEEL" | cut -d' ' -f1)
-          echo "sha256=$SHA256" >> $GITHUB_OUTPUT
+          echo "sha256=$SHA256" >> "$GITHUB_OUTPUT"
           echo "Wheel SHA256: $SHA256"
         
       - name: Publish package distributions to PyPI

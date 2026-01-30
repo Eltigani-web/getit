@@ -17,7 +17,6 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from time import sleep
 
 
 def test_json_format_with_run_id() -> None:

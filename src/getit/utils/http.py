@@ -118,12 +118,12 @@ class HTTPClient:
 
     async def _with_retry(
         self,
-        coro: Awaitable[Any],
+        coro_factory: Callable[[], Awaitable[Any]],
         is_retryable_exception: Callable[[Any], bool],
     ) -> Any:
         for attempt in range(self._max_retries + 1):
             try:
-                result = await coro
+                result = await coro_factory()
                 return result
             except aiohttp.ClientResponseError as e:
                 if e.status == 429:
@@ -189,7 +189,7 @@ class HTTPClient:
         cookies: dict[str, str] | None = None,
     ) -> aiohttp.ClientResponse:
         return await self._with_retry(
-            self.session.get(url, headers=headers, params=params, cookies=cookies),
+            lambda: self.session.get(url, headers=headers, params=params, cookies=cookies),
             lambda e: isinstance(e, (aiohttp.ClientError, asyncio.TimeoutError)),
         )
 
@@ -203,7 +203,7 @@ class HTTPClient:
         params: dict[str, Any] | None = None,
     ) -> aiohttp.ClientResponse:
         return await self._with_retry(
-            self.session.post(
+            lambda: self.session.post(
                 url, data=data, json=json, headers=headers, cookies=cookies, params=params
             ),
             lambda e: isinstance(e, (aiohttp.ClientError, asyncio.TimeoutError)),
@@ -224,7 +224,7 @@ class HTTPClient:
                 return await resp.json()
 
         return await self._with_retry(
-            do_request(),
+            do_request,
             lambda e: isinstance(e, (aiohttp.ClientError, asyncio.TimeoutError)),
         )
 
@@ -243,7 +243,7 @@ class HTTPClient:
                 return await resp.text()
 
         return await self._with_retry(
-            do_request(),
+            do_request,
             lambda e: isinstance(e, (aiohttp.ClientError, asyncio.TimeoutError)),
         )
 

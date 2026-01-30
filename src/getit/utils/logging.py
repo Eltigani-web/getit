@@ -158,7 +158,7 @@ class JSONFormatter(logging.Formatter):
             }:
                 log_entry[key] = value
 
-        return json.dumps(log_entry) + "\n"
+        return json.dumps(log_entry, default=str) + "\n"
 
 
 class PlainFormatter(logging.Formatter):
