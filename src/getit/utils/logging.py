@@ -155,6 +155,8 @@ class JSONFormatter(logging.Formatter):
                 "stack_info",
                 "thread",
                 "threadName",
+                "run_id",
+                "download_id",
             }:
                 log_entry[key] = value
 
@@ -284,11 +286,13 @@ def setup_logging(config: LogConfig | None = None) -> None:
 
 def shutdown_logging() -> None:
     """Shutdown logging and stop the queue listener."""
-    global _async_handler
+    global _logger, _async_handler
 
     if _async_handler:
         _async_handler.stop_listener()
         _async_handler = None
+
+    _logger = None
 
 
 @contextmanager
