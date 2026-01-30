@@ -59,8 +59,13 @@ class HTTPClient:
     ):
         if settings is not None:
             self._requests_per_second = getattr(settings, "requests_per_second", 10.0)
-            self._timeout_connect = getattr(settings, "timeout_connect", 30.0) or 30.0
-            self._timeout_sock_read = getattr(settings, "timeout_sock_read", 300.0) or 300.0
+
+            connect_timeout = getattr(settings, "timeout_connect", None)
+            self._timeout_connect = 30.0 if connect_timeout is None else connect_timeout
+
+            sock_read_timeout = getattr(settings, "timeout_sock_read", None)
+            self._timeout_sock_read = 300.0 if sock_read_timeout is None else sock_read_timeout
+
             self._timeout_total = getattr(settings, "timeout_total", None)
             self._max_retries = getattr(settings, "max_retries", 3)
             self._chunk_timeout = getattr(settings, "chunk_timeout", None)

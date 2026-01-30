@@ -109,11 +109,13 @@ class DownloadHistory:
         """Connect to SQLite database with security hardening."""
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
 
+        db_existed = self.db_path.exists()
+
         # Connect with busy timeout
         self._db = await aiosqlite.connect(self.db_path, **self._get_connection_kwargs())
 
         # Set file permissions on new databases
-        if not self.db_path.exists():
+        if not db_existed:
             os.chmod(self.db_path, self._get_permissions())
         else:
             # Ensure existing databases have correct permissions

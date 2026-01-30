@@ -22,7 +22,7 @@ import uuid
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import TYPE_CHECKING, Any, ClassVar
 
@@ -120,7 +120,7 @@ class JSONFormatter(logging.Formatter):
 
     def format(self, record: logging.LogRecord) -> str:
         log_entry: dict[str, Any] = {
-            "timestamp": datetime.fromtimestamp(record.created).isoformat(),
+            "timestamp": datetime.fromtimestamp(record.created, tz=timezone.utc).isoformat(),
             "level": record.levelname,
             "logger": record.name,
             "message": SecretRedactor.redact(record.getMessage()),
@@ -223,8 +223,8 @@ class AsyncSafeLogHandler(logging.Handler):
 
     def emit(self, record: logging.LogRecord) -> None:
         """Emit a log record, capturing context at emit time."""
-        record.run_id = _run_id.get()
-        record.download_id = _download_id.get()
+        record.__dict__["run_id"] = _run_id.get()
+        record.__dict__["download_id"] = _download_id.get()
         if self.queue_handler:
             self.queue_handler.emit(record)
 

@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 from getit.core.downloader import (
     DownloadStatus,
@@ -23,13 +22,7 @@ from getit.utils.http import HTTPClient
 from getit.utils.logging import get_logger
 from getit.utils.sanitize import sanitize_filename
 
-if TYPE_CHECKING:
-    pass
-
 logger = get_logger(__name__)
-
-if TYPE_CHECKING:
-    pass
 
 
 @dataclass

@@ -229,16 +229,14 @@ def download(
                     tracker.add_task(task)
 
                 with progress:
-                    # Downloads run sequentially to prevent task object swap bug
-                    # Oracle recommended this over complex concurrent refactoring
-                    # Correctness prioritized over speed - sequential downloads work correctly
-                    # TODO: Revisit concurrency if performance becomes bottleneck
-                    results: list[DownloadResult] = []
-                    for task in all_tasks:
+
+                    async def download_task(task: DownloadTask) -> DownloadResult:
                         with set_download_id(task.task_id):
                             logger.info("Starting download: %s", task.file_info.filename)
-                            result = await manager.download_task(task, on_progress=tracker.update)
-                        results.append(result)
+                            return await manager.download_task(task, on_progress=tracker.update)
+
+                    download_coros = [download_task(task) for task in all_tasks]
+                    results = await asyncio.gather(*download_coros)
 
                 success_count = sum(1 for r in results if r.success)
                 fail_count = len(results) - success_count

@@ -7,6 +7,7 @@ Tests:
 3. Secret redaction
 4. NO_COLOR flag disables ANSI
 5. Non-TTY output (piped) uses JSON
+6. No handler accumulation across setup/shutdown cycles
 """
 
 from __future__ import annotations
@@ -243,6 +244,8 @@ def test_non_tty_uses_json() -> None:
     """Test non-TTY output (piped) uses JSON by default."""
     env = os.environ.copy()
     env["TERM"] = "dumb"
+    env.pop("LOG_FORMAT", None)
+    env.pop("LOG_LEVEL", None)
 
     script_dir = Path(__file__).parent.parent / "src"
     script = f"""

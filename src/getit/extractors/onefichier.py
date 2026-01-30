@@ -223,7 +223,5 @@ class OneFichierExtractor(BaseExtractor):
                 if attempt == max_retries:
                     raise ExtractorError(f"Failed after {max_retries} retries: {e}") from e
 
-                await self._pacer.sleep(attempt)
                 logger.info(f"Retrying 1Fichier extraction (attempt {attempt + 1}/{max_retries})")
-
-        raise ExtractorError(f"Failed after {max_retries} retries")
+                await self._pacer.sleep(attempt)

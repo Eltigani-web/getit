@@ -21,18 +21,6 @@ def mock_response():
 
 
 @pytest.fixture
-def mock_session():
-    session = AsyncMock()
-    session.get = AsyncMock(return_value=mock_response())
-    session.post = AsyncMock(return_value=mock_response())
-    session.head = AsyncMock(return_value=mock_response())
-    session.cookie_jar = MagicMock()
-    session.closed = False
-    session.close = AsyncMock()
-    return session
-
-
-@pytest.fixture
 def http_client():
     return HTTPClient()
 
