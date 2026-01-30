@@ -1,12 +1,10 @@
 """Tests for chunk-level retry logic in FileDownloader."""
 
-import asyncio
-from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from getit.core.downloader import FileDownloader, DownloadTask, DownloadStatus, DownloadProgress
+from getit.core.downloader import DownloadStatus, DownloadTask, FileDownloader
 from getit.extractors.base import FileInfo
 from getit.utils.http import HTTPClient
 

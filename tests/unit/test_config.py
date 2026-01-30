@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
@@ -11,7 +10,6 @@ import pytest
 
 from getit.config import (
     Settings,
-    get_config_file_path,
     get_default_config_dir,
     get_default_download_dir,
     get_settings,
@@ -31,10 +29,12 @@ class TestGetDefaultConfigDir:
 
     def test_creates_directory(self, temp_dir: Path) -> None:
         """Should create the directory if it doesn't exist."""
-        with patch("getit.config.Path.home", return_value=temp_dir):
-            with patch("sys.platform", "linux"):
-                result = get_default_config_dir()
-                assert result.exists()
+        with (
+            patch("getit.config.Path.home", return_value=temp_dir),
+            patch("sys.platform", "linux"),
+        ):
+            result = get_default_config_dir()
+            assert result.exists()
 
     @patch("sys.platform", "darwin")
     def test_macos_path(self, temp_dir: Path) -> None:
@@ -46,10 +46,12 @@ class TestGetDefaultConfigDir:
     @patch("sys.platform", "linux")
     def test_linux_path(self, temp_dir: Path) -> None:
         """Should use ~/.config on Linux."""
-        with patch("getit.config.Path.home", return_value=temp_dir):
-            with patch.dict("os.environ", {"XDG_CONFIG_HOME": ""}, clear=False):
-                result = get_default_config_dir()
-                assert ".config/getit" in str(result) or "getit" in str(result)
+        with (
+            patch("getit.config.Path.home", return_value=temp_dir),
+            patch.dict("os.environ", {"XDG_CONFIG_HOME": ""}, clear=False),
+        ):
+            result = get_default_config_dir()
+            assert ".config/getit" in str(result) or "getit" in str(result)
 
 
 class TestGetDefaultDownloadDir:

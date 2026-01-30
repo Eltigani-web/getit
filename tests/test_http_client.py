@@ -1,11 +1,11 @@
 import asyncio
 import os
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from getit.config import Settings
-from getit.utils.http import HTTPClient, RateLimitError
+from getit.utils.http import HTTPClient
 
 
 @pytest.fixture

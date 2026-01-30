@@ -1,13 +1,12 @@
 """Tests for PixelDrain extractor."""
 
-import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from getit.extractors.base import ExtractorError, FileInfo
+from getit.extractors.base import ExtractorError
 from getit.extractors.pixeldrain import PixelDrainExtractor
-from getit.utils.http import HTTPClient, RateLimitError
+from getit.utils.http import HTTPClient
 
 
 @pytest.fixture
@@ -96,7 +95,7 @@ class TestPixelDrainRateLimiting:
         )
 
         # Make multiple requests to verify they go through HTTPClient
-        for i in range(5):
+        for _ in range(5):
             await extractor._get_file_info("abc123")
 
         # Verify get_json was called (requests go through HTTPClient with limiter)

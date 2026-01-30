@@ -6,6 +6,8 @@ Supports: GoFile, PixelDrain, MediaFire, 1Fichier, Mega.nz
 
 from importlib.metadata import PackageNotFoundError, version
 
+from getit.config import Settings
+
 
 def __set_git_version__() -> str:
     """Get version from git tags via setuptools_scm (single source of truth).
@@ -25,7 +27,5 @@ def __set_git_version__() -> str:
 
 __version__ = __set_git_version__()
 __author__ = "getit contributors"
-
-from getit.config import Settings
 
 __all__ = ["__version__", "Settings"]

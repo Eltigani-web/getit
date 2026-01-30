@@ -263,10 +263,7 @@ def setup_logging(config: LogConfig | None = None) -> None:
     _logger.handlers.clear()
 
     use_json = config.should_use_json()
-    if use_json:
-        formatter = JSONFormatter()
-    else:
-        formatter = PlainFormatter(no_color=config.no_color)
+    formatter = JSONFormatter() if use_json else PlainFormatter(no_color=config.no_color)
 
     stream_handler = logging.StreamHandler(sys.stdout)
     stream_handler.setFormatter(formatter)

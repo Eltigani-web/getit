@@ -6,7 +6,6 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from getit.extractors.base import ExtractorError, NotFound
 from getit.extractors.mediafire import MediaFireExtractor
 from getit.utils.http import HTTPClient
 

@@ -2,15 +2,15 @@ from __future__ import annotations
 
 import asyncio
 import tempfile
+from collections.abc import AsyncGenerator, Generator
 from pathlib import Path
-from typing import AsyncGenerator, Generator
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 import pytest_asyncio
 
 from getit.config import Settings
-from getit.core.downloader import DownloadProgress, DownloadTask, FileDownloader
+from getit.core.downloader import DownloadTask
 from getit.core.manager import DownloadManager
 from getit.extractors.base import FileInfo
 from getit.utils.http import HTTPClient
