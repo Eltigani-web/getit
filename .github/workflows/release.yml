@@ -138,7 +138,7 @@ jobs:
       
       - name: Sync to homebrew-tap repository
         if: ${{ vars.HOMEBREW_TAP_REPO != '' }}
-        uses: cpina/github-action-push-to-another-repository@main
+        uses: cpina/github-action-push-to-another-repository@v1.7.2
         env:
           SSH_DEPLOY_KEY: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
         with:
