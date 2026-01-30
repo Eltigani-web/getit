@@ -94,12 +94,11 @@ Manage your queue effortlessly with keyboard shortcuts:
 
 | Key | Action | Description |
 |-----|--------|-------------|
-| `a` | Add URL | Input a new URL to download queue |
+| `a` | Add URLs | Add one or more URLs with optional folder grouping |
 | `b` | Batch Import | Load multiple URLs from a file |
 | `p` | Pause/Resume | Toggle state of selected download |
 | `c` | Cancel | Stop and remove selected download |
 | `s` | Settings | Configure global preferences |
-| `d` | Dark Mode | Toggle visual theme |
 | `q` | Quit | Exit the application |
 
 ### Host Specifics
