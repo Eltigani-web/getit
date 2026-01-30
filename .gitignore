@@ -38,6 +38,7 @@ env/
 # Testing
 .pytest_cache/
 .coverage
+coverage.xml
 htmlcov/
 .tox/
 .nox/
@@ -57,16 +58,25 @@ Thumbs.db
 .env.local
 *.local.yaml
 
-
 # Downloaded files
 *.part
 downloads/
 
-# Tests & Agents (Private)
-tests/
+# AI Agents (Private workflow files)
+.sisyphus/
+.gemini/
 agents/
-*.main.kts
 *.plan
 plans/
 brain/
-.sisyphus/
+
+# Internal reports (not for public)
+GITHUB_ACTIONS_FAILURE_REPORT.md
+[Aa]gents.md
+AGENTS.md
+
+# Homebrew tap (should be in separate repo)
+.homebrew-tap/
+
+# Kotlin scripts
+*.main.kts
