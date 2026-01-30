@@ -21,8 +21,13 @@ echo "Detected version: $VERSION"
 
 # Create a modified pyproject.toml with static version for Docker build
 # Remove dynamic = ["version"] and add explicit version
-python3 << PYEOF
+# Pass VERSION to Python via environment variable
+export GETIT_BUILD_VERSION="$VERSION"
+python3 << 'PYEOF'
+import os
 import re
+
+version = os.environ.get('GETIT_BUILD_VERSION', '0.1.0')
 
 with open('pyproject.toml', 'r') as f:
     content = f.read()
@@ -33,7 +38,7 @@ content = re.sub(r'^dynamic\s*=\s*\["version"\]\n', '', content, flags=re.MULTIL
 # Add version after name line
 content = re.sub(
     r'(name\s*=\s*"getit-cli")',
-    f'\\1\nversion = "$VERSION"',
+    rf'\1\nversion = "{version}"',
     content
 )
 
@@ -48,7 +53,7 @@ content = re.sub(
 with open('pyproject.toml', 'w') as f:
     f.write(content)
 
-print(f"Updated pyproject.toml with version: $VERSION")
+print(f"Updated pyproject.toml with version: {version}")
 PYEOF
 
 # Export version for use in Dockerfile ARG

@@ -217,7 +217,8 @@ class MegaExtractor(BaseExtractor):
                             "parent_id": item.get("p"),
                         }
                     )
-                except Exception:
+                except Exception as e:
+                    logger.warning("Failed to parse folder item: %s", e)
                     continue
 
         return files
@@ -286,7 +287,8 @@ class MegaExtractor(BaseExtractor):
                         encrypted=True,
                     )
                 )
-            except Exception:
+            except Exception as e:
+                logger.warning("Failed to extract file from folder: %s", e)
                 continue
 
         return files
