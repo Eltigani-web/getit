@@ -22,7 +22,7 @@ RUN apt-get update && \
 
 # Copy project files (include .git for VCS version detection)
 COPY .git .git/
-COPY pyproject.toml MANIFEST.in ./
+COPY pyproject.toml MANIFEST.in README.md ./
 COPY src/ ./src/
 
 # Copy pyproject.toml fix script
