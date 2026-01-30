@@ -119,6 +119,7 @@ class TestMediaFireDirectLinkExtraction:
 
         result = await extractor._get_direct_link_html("https://mediafire.com/file/abc123")
 
+        assert result is not None
         assert result[0] == "http://test.com/file.zip"
 
 

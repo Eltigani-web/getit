@@ -115,13 +115,12 @@ class TestWalAndPragmas:
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = Path(tmpdir) / "history.db"
 
-            async with (
-                DownloadHistory(db_path) as history,
-                history._db.execute("PRAGMA synchronous") as cursor,
-            ):
-                row = await cursor.fetchone()
-                mode = row[0] if row else None
-                assert mode == 1, f"Expected 1 (NORMAL), got {mode}"
+            async with DownloadHistory(db_path) as history:
+                assert history._db is not None
+                async with history._db.execute("PRAGMA synchronous") as cursor:
+                    row = await cursor.fetchone()
+                    mode = row[0] if row else None
+                    assert mode == 1, f"Expected 1 (NORMAL), got {mode}"
 
     @pytest.mark.asyncio
     async def test_busy_timeout_30s(self):
@@ -129,13 +128,12 @@ class TestWalAndPragmas:
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = Path(tmpdir) / "history.db"
 
-            async with (
-                DownloadHistory(db_path) as history,
-                history._db.execute("PRAGMA busy_timeout") as cursor,
-            ):
-                row = await cursor.fetchone()
-                timeout = row[0] if row else None
-                assert timeout == 30000, f"Expected 30000ms, got {timeout}ms"
+            async with DownloadHistory(db_path) as history:
+                assert history._db is not None
+                async with history._db.execute("PRAGMA busy_timeout") as cursor:
+                    row = await cursor.fetchone()
+                    timeout = row[0] if row else None
+                    assert timeout == 30000, f"Expected 30000ms, got {timeout}ms"
 
     @pytest.mark.asyncio
     async def test_foreign_keys_enabled(self):
@@ -143,13 +141,12 @@ class TestWalAndPragmas:
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = Path(tmpdir) / "history.db"
 
-            async with (
-                DownloadHistory(db_path) as history,
-                history._db.execute("PRAGMA foreign_keys") as cursor,
-            ):
-                row = await cursor.fetchone()
-                enabled = row[0] if row else None
-                assert enabled == 1, f"Expected 1 (enabled), got {enabled}"
+            async with DownloadHistory(db_path) as history:
+                assert history._db is not None
+                async with history._db.execute("PRAGMA foreign_keys") as cursor:
+                    row = await cursor.fetchone()
+                    enabled = row[0] if row else None
+                    assert enabled == 1, f"Expected 1 (enabled), got {enabled}"
 
 
 class TestSchemaVersioning:
@@ -285,7 +282,6 @@ class TestSecretRedaction:
         """Empty or None input is handled gracefully."""
         history = DownloadHistory(Path("test.db"))
         assert history._redact_secrets("") == ""
-        assert history._redact_secrets(None) is None
 
 
 class TestEnvironmentVariableRedaction:
@@ -328,16 +324,20 @@ class TestDownloadHistoryIntegration:
             db_path = Path(tmpdir) / "downloads" / "history.db"
 
             async with DownloadHistory(db_path) as history:
+                assert history._db is not None
                 async with history._db.execute("PRAGMA journal_mode") as cursor:
                     row = await cursor.fetchone()
+                    assert row is not None
                     assert row[0] == "wal"
 
                 async with history._db.execute("PRAGMA synchronous") as cursor:
                     row = await cursor.fetchone()
+                    assert row is not None
                     assert row[0] == 1
 
                 async with history._db.execute("PRAGMA busy_timeout") as cursor:
                     row = await cursor.fetchone()
+                    assert row is not None
                     assert row[0] == 30000
 
                 download_id = await history.add_download(

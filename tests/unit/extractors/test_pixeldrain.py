@@ -3,6 +3,7 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from multidict import CIMultiDict, CIMultiDictProxy
 
 from getit.extractors.base import ExtractorError
 from getit.extractors.pixeldrain import PixelDrainExtractor
@@ -117,7 +118,7 @@ class TestPixelDrainRateLimiting:
             history=(),
             status=429,
             message="Too many requests",
-            headers={"Retry-After": "1.0"},
+            headers=CIMultiDictProxy(CIMultiDict({"Retry-After": "1.0"})),
         )
         mock_http.get_json = AsyncMock(side_effect=error)
 
