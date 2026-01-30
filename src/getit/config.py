@@ -65,20 +65,28 @@ class Settings(BaseSettings):
     download_dir: Path = Field(default_factory=get_default_download_dir)
     max_concurrent_downloads: int = Field(default=3, ge=1, le=10)
     max_concurrent_chunks: int = Field(default=4, ge=1, le=16)
-    chunk_size: int = Field(default=1024 * 1024, ge=1024)  # 1MB default
+    chunk_size: int = Field(default=1024 * 1024, ge=1024)
     max_retries: int = Field(default=3, ge=0, le=10)
     retry_delay: float = Field(default=1.0, ge=0.0)
     timeout: float = Field(default=30.0, ge=5.0)
-    speed_limit: int | None = Field(default=None)  # bytes/sec, None = unlimited
+    speed_limit: int | None = Field(default=None)
+
+    timeout_connect: float | None = Field(default=None, ge=1.0)
+    timeout_sock_read: float | None = Field(default=None, ge=1.0)
+    timeout_total: float | None = Field(default=None, ge=1.0)
+    chunk_timeout: float | None = Field(default=None, ge=1.0)
 
     # Resume settings
     enable_resume: bool = Field(default=True)
 
-    # API settings
+    # API settings (loaded from environment variables, not saved to config.json)
     gofile_token: str | None = Field(default=None)
     pixeldrain_api_key: str | None = Field(default=None)
     mega_email: str | None = Field(default=None)
     mega_password: str | None = Field(default=None)
+
+    # Encryption (optional, for database encryption hook)
+    encryption_key: str | None = Field(default=None)
 
     # TUI settings
     show_speed: bool = Field(default=True)
@@ -99,7 +107,12 @@ class Settings(BaseSettings):
 
 
 def save_config(settings: Settings) -> None:
-    """Save user-facing settings to JSON config file."""
+    """Save user-facing settings to JSON config file.
+
+    Note: Sensitive fields (tokens, API keys, passwords) are excluded from
+    the JSON config file to avoid storing plaintext credentials. These are
+    loaded from environment variables instead.
+    """
     config_path = get_config_file_path()
     config_data = {
         "download_dir": str(settings.download_dir),
@@ -114,6 +127,8 @@ def save_config(settings: Settings) -> None:
     config_path.parent.mkdir(parents=True, exist_ok=True)
     with open(config_path, "w", encoding="utf-8") as f:
         json.dump(config_data, f, indent=2)
+    # Set restrictive permissions: rw------- (only owner can read/write)
+    config_path.chmod(0o600)
 
 
 # Global settings instance

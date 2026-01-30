@@ -24,6 +24,15 @@ from getit.config import get_settings
 from getit.core.downloader import DownloadTask
 from getit.core.manager import DownloadManager, DownloadResult
 from getit.extractors.base import FileInfo
+from getit.utils.logging import (
+    get_logger,
+    get_run_id,
+    set_download_id,
+    set_run_id,
+    setup_logging,
+)
+
+logger = get_logger(__name__)
 
 app = typer.Typer(
     name="getit",
@@ -168,74 +177,76 @@ def download(
             speed_limit = int(value * multipliers.get(unit, 1))
 
     async def run_downloads() -> None:
-        async with DownloadManager(
-            output_dir=output_dir,
-            max_concurrent=concurrent,
-            enable_resume=not no_resume,
-            speed_limit=speed_limit,
-        ) as manager:
-            all_tasks: list[DownloadTask] = []
-            extraction_semaphore = asyncio.Semaphore(10)
+        with set_run_id():
+            logger.info("Starting download session", extra={"url_count": len(all_urls)})
 
-            async def extract_url(url: str) -> list[FileInfo]:
-                async with extraction_semaphore:
-                    extractor = manager.get_extractor(url)
-                    if not extractor:
-                        console.print(f"[red]No extractor found for:[/red] {url}")
-                        return []
-                    try:
-                        return await manager.extract_files(url, password)
-                    except Exception as e:
-                        console.print(f"[red]Error extracting {url}:[/red] {e}")
-                        return []
+            async with DownloadManager(
+                output_dir=output_dir,
+                max_concurrent=concurrent,
+                enable_resume=not no_resume,
+                speed_limit=speed_limit,
+            ) as manager:
+                all_tasks: list[DownloadTask] = []
+                extraction_semaphore = asyncio.Semaphore(10)
 
-            with console.status(f"[bold green]Extracting {len(all_urls)} URL(s) in parallel..."):
-                extraction_results = await asyncio.gather(*[extract_url(url) for url in all_urls])
+                async def extract_url(url: str) -> list[FileInfo]:
+                    async with extraction_semaphore:
+                        extractor = manager.get_extractor(url)
+                        if not extractor:
+                            console.print(f"[red]No extractor found for:[/red] {url}")
+                            return []
+                        try:
+                            return await manager.extract_files(url, password)
+                        except Exception as e:
+                            console.print(f"[red]Error extracting {url}:[/red] {e}")
+                            return []
 
-            for files in extraction_results:
-                for file_info in files:
-                    task = manager.create_task(file_info)
-                    all_tasks.append(task)
-                    console.print(
-                        f"  [green]✓[/green] {file_info.filename} "
-                        f"[dim]({format_size(file_info.size)})[/dim]"
+                with console.status(
+                    f"[bold green]Extracting {len(all_urls)} URL(s) in parallel..."
+                ):
+                    extraction_results = await asyncio.gather(
+                        *[extract_url(url) for url in all_urls]
                     )
 
-            if not all_tasks:
-                console.print("[yellow]No files to download[/yellow]")
-                return
-
-            console.print(f"\n[bold]Starting download of {len(all_tasks)} file(s)...[/bold]\n")
-
-            progress = create_progress()
-            tracker = ProgressTracker(progress)
-
-            for task in all_tasks:
-                tracker.add_task(task)
-
-            with progress:
-                # Downloads run sequentially to prevent task object swap bug
-                # Oracle recommended this over complex concurrent refactoring
-                # Correctness prioritized over speed - sequential downloads work correctly
-                # TODO: Revisit concurrency if performance becomes bottleneck
-                results: list[DownloadResult] = []
-                for task in all_tasks:
-                    result = await manager.download_task(task, on_progress=tracker.update)
-                    results.append(result)
-
-            success_count = sum(1 for r in results if r.success)
-            fail_count = len(results) - success_count
-
-            if success_count > 0:
-                console.print(f"[green]✓ {success_count} file(s) downloaded successfully[/green]")
-
-            if fail_count > 0:
-                console.print(f"[red]✗ {fail_count} file(s) failed[/red]")
-                for result in results:
-                    if not result.success:
+                for files in extraction_results:
+                    for file_info in files:
+                        task = manager.create_task(file_info)
+                        all_tasks.append(task)
                         console.print(
-                            f"  [red]•[/red] {result.task.file_info.filename}: {result.error}"
+                            f"  [green]✓[/green] {file_info.filename} "
+                            f"[dim]({format_size(file_info.size)})[/dim]"
                         )
+
+                if not all_tasks:
+                    console.print("[yellow]No files to download[/yellow]")
+                    return
+
+                console.print(f"\n[bold]Starting download of {len(all_tasks)} file(s)...[/bold]\n")
+
+                progress = create_progress()
+                tracker = ProgressTracker(progress)
+
+                for task in all_tasks:
+                    tracker.add_task(task)
+
+                with progress:
+                    # Downloads run sequentially to prevent task object swap bug
+                    # Oracle recommended this over complex concurrent refactoring
+                    # Correctness prioritized over speed - sequential downloads work correctly
+                    # TODO: Revisit concurrency if performance becomes bottleneck
+                    results: list[DownloadResult] = []
+                    for task in all_tasks:
+                        with set_download_id(task.task_id):
+                            logger.info("Starting download: %s", task.file_info.filename)
+                            result = await manager.download_task(task, on_progress=tracker.update)
+                        results.append(result)
+
+                success_count = sum(1 for r in results if r.success)
+                fail_count = len(results) - success_count
+
+                logger.info(
+                    "Download session completed: %d succeeded, %d failed", success_count, fail_count
+                )
 
     asyncio.run(run_downloads())
 
@@ -373,7 +384,7 @@ def main(
         typer.Option("--version", "-V", callback=version_callback, is_eager=True),
     ] = None,
 ) -> None:
-    pass
+    setup_logging()
 
 
 if __name__ == "__main__":

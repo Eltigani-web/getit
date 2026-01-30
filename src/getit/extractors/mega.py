@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 import random
 import re
 import struct
@@ -16,9 +17,12 @@ from getit.extractors.base import (
     FolderInfo,
     NotFound,
 )
+from getit.utils.pacer import Pacer
 
 if TYPE_CHECKING:
     from getit.utils.http import HTTPClient
+
+logger = logging.getLogger(__name__)
 
 
 def a32_to_str(a: list[int]) -> bytes:
@@ -75,6 +79,7 @@ class MegaExtractor(BaseExtractor):
         super().__init__(http_client)
         self._session_id: str | None = None
         self._sequence_num = random.randint(0, 0xFFFFFFFF)
+        self._pacer = Pacer(min_backoff=0.4, max_backoff=5.0, flood_sleep=30.0)
 
     def _derive_key(self, key_a32: list[int]) -> list[int]:
         if len(key_a32) == 8:
@@ -108,40 +113,77 @@ class MegaExtractor(BaseExtractor):
         return False
 
     async def _api_request(
-        self, data: list[dict[str, Any]], query_params: dict[str, str] | None = None
+        self,
+        data: list[dict[str, Any]],
+        query_params: dict[str, str] | None = None,
+        max_retries: int = 3,
     ) -> Any:
-        params = {"id": self._sequence_num}
-        if query_params:
-            params.update(query_params)  # type: ignore[arg-type]  # dict[str,str] compatible
-        self._sequence_num += 1
+        self._pacer.reset()
 
-        async with await self.http.post(
-            self.API_URL,
-            params=params,
-            json=data,
-        ) as resp:
-            result = await resp.json()
+        for attempt in range(max_retries + 1):
+            try:
+                params = {"id": self._sequence_num}
+                if query_params:
+                    params.update(query_params)  # type: ignore[arg-type]  # dict[str,str] compatible
+                self._sequence_num += 1
 
-        if isinstance(result, int):
-            error_codes = {
-                -2: "EARGS - Invalid arguments",
-                -3: "EAGAIN - Temporary congestion",
-                -4: "ERATELIMIT - Rate limit exceeded",
-                -5: "EFAILED - Upload failed",
-                -6: "ETOOMANY - Too many connections",
-                -9: "ENOENT - File not found",
-                -11: "EACCESS - Access denied",
-                -14: "EINCOMPLETE - Incomplete request",
-                -15: "EKEY - Invalid key",
-                -16: "ESID - Invalid session",
-                -17: "EBLOCKED - User blocked",
-                -18: "EOVERQUOTA - Quota exceeded",
-            }
-            if result == -9:
-                raise NotFound("File not found")
-            raise ExtractorError(error_codes.get(result, f"API error: {result}"))
+                async with await self.http.post(
+                    self.API_URL,
+                    params=params,
+                    json=data,
+                ) as resp:
+                    result = await resp.json()
 
-        return result[0] if isinstance(result, list) else result
+                if isinstance(result, int):
+                    error_codes = {
+                        -2: "EARGS - Invalid arguments",
+                        -3: "EAGAIN - Temporary congestion",
+                        -4: "ERATELIMIT - Rate limit exceeded",
+                        -5: "EFAILED - Upload failed",
+                        -6: "ETOOMANY - Too many connections",
+                        -9: "ENOENT - File not found",
+                        -11: "EACCESS - Access denied",
+                        -14: "EINCOMPLETE - Incomplete request",
+                        -15: "EKEY - Invalid key",
+                        -16: "ESID - Invalid session",
+                        -17: "EBLOCKED - User blocked",
+                        -18: "EOVERQUOTA - Quota exceeded",
+                    }
+                    if result == -9:
+                        raise NotFound("File not found")
+                    raise ExtractorError(error_codes.get(result, f"API error: {result}"))
+
+                if isinstance(result, list) and len(result) == 1 and isinstance(result[0], int):
+                    error_code = result[0]
+                    error_codes = {
+                        -2: "EARGS - Invalid arguments",
+                        -3: "EAGAIN - Temporary congestion",
+                        -4: "ERATELIMIT - Rate limit exceeded",
+                        -5: "EFAILED - Upload failed",
+                        -6: "ETOOMANY - Too many connections",
+                        -9: "ENOENT - File not found",
+                        -11: "EACCESS - Access denied",
+                        -14: "EINCOMPLETE - Incomplete request",
+                        -15: "EKEY - Invalid key",
+                        -16: "ESID - Invalid session",
+                        -17: "EBLOCKED - User blocked",
+                        -18: "EOVERQUOTA - Quota exceeded",
+                    }
+                    if error_code == -9:
+                        raise NotFound("File not found")
+                    raise ExtractorError(error_codes.get(error_code, f"API error: {error_code}"))
+
+                return result[0] if isinstance(result, list) else result
+            except (ExtractorError, NotFound):
+                raise
+            except Exception as e:
+                if attempt == max_retries:
+                    raise ExtractorError(
+                        f"Mega API request failed after {max_retries} retries: {e}"
+                    ) from e
+
+                await self._pacer.sleep(attempt)
+                logger.info(f"Retrying Mega API request (attempt {attempt + 1}/{max_retries})")
 
     async def _get_file_info(self, file_id: str, file_key: str) -> dict[str, Any]:
         data = [{"a": "g", "g": 1, "p": file_id}]
@@ -195,7 +237,8 @@ class MegaExtractor(BaseExtractor):
                             "parent_id": item.get("p"),
                         }
                     )
-                except Exception:
+                except Exception as e:
+                    logger.warning("Failed to parse folder item: %s", e)
                     continue
 
         return files
@@ -264,7 +307,8 @@ class MegaExtractor(BaseExtractor):
                         encrypted=True,
                     )
                 )
-            except Exception:
+            except Exception as e:
+                logger.warning("Failed to extract file from folder: %s", e)
                 continue
 
         return files

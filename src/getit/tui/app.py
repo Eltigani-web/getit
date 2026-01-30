@@ -21,6 +21,7 @@ from textual.widgets import (
     Label,
     Static,
     Switch,
+    TextArea,
 )
 
 from getit.config import get_settings, save_config
@@ -253,14 +254,16 @@ class BatchFileScreen(ModalScreen[tuple[str, str | None, str | None] | None]):
         self.on_import()
 
 
-class AddUrlScreen(ModalScreen[tuple[str, str | None] | None]):
+class AddUrlScreen(ModalScreen[tuple[list[str], str | None, str | None] | None]):
+    """Screen for adding one or more URLs with optional folder grouping."""
+
     CSS = """
     AddUrlScreen {
         align: center middle;
     }
 
     #dialog {
-        width: 60;
+        width: 70;
         height: auto;
         border: thick $background 80%;
         background: $surface;
@@ -275,6 +278,11 @@ class AddUrlScreen(ModalScreen[tuple[str, str | None] | None]):
         margin-bottom: 1;
     }
 
+    #url-area {
+        height: 8;
+        margin-bottom: 1;
+    }
+
     #buttons {
         width: 100%;
         height: auto;
@@ -284,6 +292,11 @@ class AddUrlScreen(ModalScreen[tuple[str, str | None] | None]):
     #buttons Button {
         margin-right: 1;
     }
+
+    .hint {
+        color: $text-muted;
+        margin-bottom: 1;
+    }
     """
 
     BINDINGS = [
@@ -292,9 +305,15 @@ class AddUrlScreen(ModalScreen[tuple[str, str | None] | None]):
 
     def compose(self) -> ComposeResult:
         with Container(id="dialog"):
-            yield Label("Add Download URL")
-            yield Input(placeholder="Enter URL...", id="url_input")
-            yield Input(placeholder="Password (optional)", id="password_input", password=True)
+            yield Label("Add Download URLs")
+            yield Static("Enter URLs (one per line)", classes="hint")
+            yield TextArea(id="url-area")
+            yield Input(
+                placeholder="Password (optional, applies to all)",
+                id="password_input",
+                password=True,
+            )
+            yield Input(placeholder="Folder name (optional, groups downloads)", id="folder_input")
             with Horizontal(id="buttons"):
                 yield Button("Add", variant="primary", id="add_btn")
                 yield Button("Cancel", id="cancel_btn")
@@ -308,18 +327,24 @@ class AddUrlScreen(ModalScreen[tuple[str, str | None] | None]):
 
     @on(Button.Pressed, "#add_btn")
     def on_add(self) -> None:
-        url_input = self.query_one("#url_input", Input)
+        url_area = self.query_one("#url-area", TextArea)
         password_input = self.query_one("#password_input", Input)
-        url = url_input.value.strip()
-        password = password_input.value.strip() or None
-        if url:
-            self.dismiss((url, password))
-        else:
-            self.dismiss(None)
+        folder_input = self.query_one("#folder_input", Input)
 
-    @on(Input.Submitted, "#url_input")
-    def on_url_submitted(self) -> None:
-        self.on_add()
+        text = url_area.text.strip()
+        password = password_input.value.strip() or None
+        folder = folder_input.value.strip() or None
+
+        urls = [
+            line.strip()
+            for line in text.splitlines()
+            if line.strip() and not line.strip().startswith("#") and line.strip().startswith("http")
+        ]
+
+        if urls:
+            self.dismiss((urls, password, folder))
+        else:
+            self.app.notify("No valid URLs entered", severity="warning")
 
 
 class ErrorDetailsScreen(ModalScreen[None]):
@@ -385,7 +410,12 @@ class ErrorDetailsScreen(ModalScreen[None]):
         self.download_task.progress.status = DownloadStatus.PENDING
         self.download_task.progress.error = None
         self.download_task.retries = 0
+        self.app.call_later(self._trigger_retry)
         self.dismiss(None)
+
+    def _trigger_retry(self) -> None:
+        if hasattr(self.app, "_start_download"):
+            self.app._start_download(self.download_task)
 
 
 class SettingsScreen(ModalScreen[None]):
@@ -579,7 +609,6 @@ class GetItApp(App):
         Binding("q", "quit", "Quit"),
         Binding("a", "add_url", "Add URL"),
         Binding("b", "batch_import", "Batch Import"),
-        Binding("d", "toggle_dark", "Toggle Dark Mode"),
         Binding("r", "refresh", "Refresh"),
         Binding("c", "cancel_selected", "Cancel"),
         Binding("p", "pause_resume_selected", "Pause/Resume"),
@@ -728,9 +757,6 @@ class GetItApp(App):
         total, active, completed, failed, total_speed = _count_tasks_by_status(self.tasks)
         status_bar.update_status(total, active, completed, failed, total_speed)
 
-    def action_toggle_dark(self) -> None:
-        self.dark = not self.dark  # type: ignore[has-type]  # Textual reactive property
-
     def action_refresh(self) -> None:
         self._update_table()
         self._update_status_bar()
@@ -740,8 +766,36 @@ class GetItApp(App):
     async def action_add_url(self) -> None:
         result = await self.push_screen_wait(AddUrlScreen())
         if result:
-            url, password = result
-            self._add_download(url, password)
+            urls, password, custom_folder = result
+            await self._add_urls(urls, password, custom_folder)
+
+    @work(exclusive=False)
+    async def _add_urls(
+        self,
+        urls: list[str],
+        password: str | None = None,
+        custom_folder: str | None = None,
+    ) -> None:
+        batch_output_dir = self._create_batch_folder(custom_folder)
+        if custom_folder and batch_output_dir is None:
+            return
+
+        if len(urls) > 1:
+            self.notify(f"Adding {len(urls)} URL(s)...")
+
+        success_count = 0
+        for url in urls:
+            try:
+                await self._add_download(url, password, batch_output_dir)  # type: ignore[misc]
+                success_count += 1
+            except Exception:
+                pass
+
+        if len(urls) > 1:
+            self.notify(
+                f"Added {success_count}/{len(urls)} URL(s)",
+                severity="information" if success_count > 0 else "warning",
+            )
 
     @on(Button.Pressed, "#add-btn")
     async def on_add_button(self) -> None:
@@ -849,14 +903,29 @@ class GetItApp(App):
         pending_tasks = [
             t for t in self.tasks.values() if t.progress.status == DownloadStatus.PENDING
         ]
-        for task in pending_tasks:
-            self._start_download(task)
+        if pending_tasks:
+            for task in pending_tasks:
+                self._start_download(task)
+            self.notify(f"Started {len(pending_tasks)} download(s)")
+        else:
+            self.notify("No pending downloads to start", severity="warning")
 
     @on(Button.Pressed, "#cancel-btn")
     async def on_cancel_all(self) -> None:
+        cancellable_statuses = (
+            DownloadStatus.DOWNLOADING,
+            DownloadStatus.PENDING,
+            DownloadStatus.PAUSED,
+        )
+        cancelled_count = 0
         for task in self.tasks.values():
-            if task.progress.status == DownloadStatus.DOWNLOADING:
+            if task.progress.status in cancellable_statuses:
                 task.progress.status = DownloadStatus.CANCELLED
+                cancelled_count += 1
+        if cancelled_count > 0:
+            self.notify(f"Cancelled {cancelled_count} download(s)")
+        else:
+            self.notify("No active downloads to cancel", severity="warning")
 
     @on(Button.Pressed, "#clear-btn")
     def on_clear_completed(self) -> None:
@@ -975,8 +1044,13 @@ class GetItApp(App):
 
     def action_cancel_selected(self) -> None:
         task = self._get_selected_task()
-        if task:
+        if task and task.progress.status in (
+            DownloadStatus.DOWNLOADING,
+            DownloadStatus.PENDING,
+            DownloadStatus.PAUSED,
+        ):
             task.progress.status = DownloadStatus.CANCELLED
+            self.notify(f"Cancelled: {task.file_info.filename[:30]}")
 
     def action_pause_resume_selected(self) -> None:
         task = self._get_selected_task()

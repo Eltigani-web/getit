@@ -7,8 +7,6 @@ import re
 import time
 from typing import TYPE_CHECKING, ClassVar
 
-from aiolimiter import AsyncLimiter
-
 from getit.extractors.base import (
     BaseExtractor,
     ExtractorError,
@@ -20,6 +18,10 @@ from getit.extractors.base import (
 
 if TYPE_CHECKING:
     from getit.utils.http import HTTPClient
+
+from getit.utils.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class GoFileExtractor(BaseExtractor):
@@ -60,17 +62,15 @@ class GoFileExtractor(BaseExtractor):
         self._website_token: str | None = None
         self._website_token_expiry: float = 0
         self._token_expiry: float = 0
-        self._limiter = AsyncLimiter(10, 1)
 
     async def _get_guest_token(self) -> str:
         if self._token and time.time() < self._token_expiry:
             return self._token
 
-        async with self._limiter:
-            resp = await self.http.post(f"{self.API_URL}/accounts", data={})
-            async with resp:
-                resp.raise_for_status()
-                data = await resp.json()
+        resp = await self.http.post(f"{self.API_URL}/accounts", data={})
+        async with resp:
+            resp.raise_for_status()
+            data = await resp.json()
 
         if data.get("status") == "ok":
             self._token = data["data"]["token"]
@@ -86,8 +86,7 @@ class GoFileExtractor(BaseExtractor):
 
         for js_url in self.JS_URLS:
             try:
-                async with self._limiter:
-                    text = await self.http.get_text(js_url)
+                text = await self.http.get_text(js_url)
                 for pattern in self.WT_PATTERNS:
                     match = re.search(pattern, text)
                     if match:
@@ -133,8 +132,7 @@ class GoFileExtractor(BaseExtractor):
 
                 url = f"{self.API_URL}/contents/{content_id}?cache=true"
 
-                async with self._limiter:
-                    data = await self.http.get_json(url, headers=headers, params=params)
+                data = await self.http.get_json(url, headers=headers, params=params)
 
                 status = data.get("status", "")
 
@@ -189,7 +187,7 @@ class GoFileExtractor(BaseExtractor):
         md5 = file_data.get("md5")
         checksum_type = "md5" if md5 else None
 
-        print(f"[DEBUG] _parse_file: filename={filename}, link={link}, md5={md5}")
+        logger.debug("Parsing file: filename=%s, link=%s, md5=%s", filename, link, md5)
 
         return FileInfo(
             url=link,

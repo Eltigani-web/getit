@@ -94,12 +94,11 @@ Manage your queue effortlessly with keyboard shortcuts:
 
 | Key | Action | Description |
 |-----|--------|-------------|
-| `a` | Add URL | Input a new URL to download queue |
+| `a` | Add URLs | Add one or more URLs with optional folder grouping |
 | `b` | Batch Import | Load multiple URLs from a file |
 | `p` | Pause/Resume | Toggle state of selected download |
 | `c` | Cancel | Stop and remove selected download |
 | `s` | Settings | Configure global preferences |
-| `d` | Dark Mode | Toggle visual theme |
 | `q` | Quit | Exit the application |
 
 ### Host Specifics
@@ -135,6 +134,10 @@ We welcome contributions!
 1. **Clone**: `git clone https://github.com/ahmedeltigani/getit.git`
 2. **Setup**: `pip install -e ".[dev]"`
 3. **Test**: `pytest`
+
+### Production Readiness
+
+For detailed information about the project's production readiness status, risk register, and mitigation plans, see the [Production Readiness Scorecard](PRODUCTION_READINESS.md).
 
 ### Architecture Overview
 
