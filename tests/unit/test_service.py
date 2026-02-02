@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import tempfile
 from pathlib import Path
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -15,7 +15,7 @@ from getit.events import DOWNLOAD_COMPLETE, DOWNLOAD_ERROR, DOWNLOAD_PROGRESS, E
 from getit.extractors.base import FileInfo
 from getit.registry import ExtractorRegistry
 from getit.service import DownloadService
-from getit.tasks import TaskInfo, TaskRegistry, TaskStatus
+from getit.tasks import TaskRegistry, TaskStatus
 
 
 @pytest.fixture

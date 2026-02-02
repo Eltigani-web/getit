@@ -13,8 +13,11 @@ from pathlib import Path
 import aiosqlite
 
 from getit.config import get_default_config_dir
+from getit.utils.logging import get_logger
 
 _UNSET = object()
+
+logger = get_logger(__name__)
 
 
 class TaskStatus(Enum):
@@ -150,6 +153,7 @@ class TaskRegistry:
 
     async def get_task(self, task_id: str) -> TaskInfo | None:
         if not self._db:
+            logger.warning("get_task called but database not connected")
             return None
 
         async with self._db.execute("SELECT * FROM tasks WHERE task_id = ?", (task_id,)) as cursor:
@@ -166,6 +170,7 @@ class TaskRegistry:
         error: str | None | object = _UNSET,
     ) -> None:
         if not self._db:
+            logger.warning("update_task called but database not connected")
             return
 
         updates = []
@@ -196,6 +201,7 @@ class TaskRegistry:
 
     async def list_active(self) -> list[TaskInfo]:
         if not self._db:
+            logger.warning("list_active called but database not connected")
             return []
 
         tasks: list[TaskInfo] = []
@@ -217,6 +223,7 @@ class TaskRegistry:
 
     async def delete_task(self, task_id: str) -> None:
         if not self._db:
+            logger.warning("delete_task called but database not connected")
             return
 
         await self._db.execute("DELETE FROM tasks WHERE task_id = ?", (task_id,))

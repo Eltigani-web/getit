@@ -42,7 +42,8 @@ class EventBus:
             event: Event name (e.g., DOWNLOAD_PROGRESS)
             callback: Callable that receives event data
         """
-        self._subscribers[event].append(callback)
+        if callback not in self._subscribers[event]:
+            self._subscribers[event].append(callback)
 
     def unsubscribe(self, event: str, callback: Callable[[Any], Any]) -> None:
         """Unsubscribe a callback from an event.
@@ -65,7 +66,7 @@ class EventBus:
             event: Event name
             data: Optional data to pass to callbacks
         """
-        callbacks = self._subscribers.get(event, [])
+        callbacks = list(self._subscribers.get(event, []))
         for callback in callbacks:
             try:
                 if inspect.iscoroutinefunction(callback):

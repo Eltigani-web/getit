@@ -1,6 +1,7 @@
 """Configuration management using Pydantic Settings."""
 
 import json
+import sys
 from pathlib import Path
 
 from pydantic import Field
@@ -113,6 +114,8 @@ def save_config(settings: Settings) -> None:
     the JSON config file to avoid storing plaintext credentials. These are
     loaded from environment variables instead.
     """
+    import sys
+
     config_path = get_config_file_path()
     config_data = {
         "download_dir": str(settings.download_dir),
@@ -128,7 +131,8 @@ def save_config(settings: Settings) -> None:
     with open(config_path, "w", encoding="utf-8") as f:
         json.dump(config_data, f, indent=2)
     # Set restrictive permissions: rw------- (only owner can read/write)
-    config_path.chmod(0o600)
+    if sys.platform != "win32":
+        config_path.chmod(0o600)
 
 
 # Global settings instance

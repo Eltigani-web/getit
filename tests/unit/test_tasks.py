@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 import tempfile
-from collections.abc import Generator
+from collections.abc import AsyncGenerator, Generator
 from datetime import datetime
 from pathlib import Path
 
@@ -98,7 +98,7 @@ class TestTaskRegistry:
             yield Path(tmpdir) / "tasks.db"
 
     @pytest.fixture
-    async def registry(self, temp_db_path: Path) -> Generator[TaskRegistry, None, None]:
+    async def registry(self, temp_db_path: Path) -> AsyncGenerator[TaskRegistry, None]:
         """Provide a connected TaskRegistry instance."""
         reg = TaskRegistry(temp_db_path)
         await reg.connect()

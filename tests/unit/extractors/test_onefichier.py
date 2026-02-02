@@ -54,7 +54,7 @@ class TestOneFichierFloodDetection:
         flood_html = "<html>Too many connections from your IP</html>"
         assert extractor._pacer.detect_flood_ip_lock(flood_html)
 
-    def test_no_flock_detection(self, mock_http):
+    def test_no_flood_detection(self, mock_http):
         extractor = OneFichierExtractor(mock_http)
         normal_html = "<html>Download your file</html>"
         assert not extractor._pacer.detect_flood_ip_lock(normal_html)

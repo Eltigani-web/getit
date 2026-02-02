@@ -6,6 +6,7 @@ MCP clients when download progress, completion, or errors occur.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -22,24 +23,26 @@ ACTIVE_DOWNLOADS_URI = "active-downloads://list"
 # Track subscribed sessions
 _subscribed_sessions: set[ServerSession] = set()
 _event_handlers_registered = False
+_registration_lock = asyncio.Lock()
 
 
 async def _register_event_handlers() -> None:
     """Register EventBus handlers for download events (lazy initialization)."""
     global _event_handlers_registered
 
-    if _event_handlers_registered:
-        return
+    async with _registration_lock:
+        if _event_handlers_registered:
+            return
 
-    ctx = get_context()
+        ctx = get_context()
 
-    # Register handlers for all download events
-    ctx.event_bus.subscribe(DOWNLOAD_PROGRESS, _on_download_event)
-    ctx.event_bus.subscribe(DOWNLOAD_COMPLETE, _on_download_event)
-    ctx.event_bus.subscribe(DOWNLOAD_ERROR, _on_download_event)
+        # Register handlers for all download events
+        ctx.event_bus.subscribe(DOWNLOAD_PROGRESS, _on_download_event)
+        ctx.event_bus.subscribe(DOWNLOAD_COMPLETE, _on_download_event)
+        ctx.event_bus.subscribe(DOWNLOAD_ERROR, _on_download_event)
 
-    _event_handlers_registered = True
-    logger.info("EventBus handlers registered for active_downloads resource")
+        _event_handlers_registered = True
+        logger.info("EventBus handlers registered for active_downloads resource")
 
 
 async def _on_download_event(data: Any) -> None:

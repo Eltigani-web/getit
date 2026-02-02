@@ -175,8 +175,8 @@ def download(
         with set_run_id():
             logger.info("Starting download session", extra={"url_count": len(all_urls)})
 
-            settings = get_settings()
-            output_dir_resolved = output or settings.download_dir
+            base_settings = get_settings()
+            output_dir_resolved = output or base_settings.download_dir
 
             speed_limit_bytes = None
             if limit:
@@ -187,6 +187,7 @@ def download(
                     multipliers = {"K": 1024, "M": 1024**2, "G": 1024**3, "": 1}
                     speed_limit_bytes = int(value * multipliers.get(unit, 1))
 
+            settings = base_settings.model_copy(deep=True)
             settings.max_concurrent_downloads = concurrent
             settings.enable_resume = not no_resume
             if speed_limit_bytes is not None:
@@ -229,7 +230,7 @@ def download(
                     )
 
                 file_count = 0
-                for url, files in extraction_results:
+                for _, files in extraction_results:
                     for file_info in files:
                         file_count += 1
                         console.print(

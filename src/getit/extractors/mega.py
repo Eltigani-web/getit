@@ -151,8 +151,16 @@ class MegaExtractor(BaseExtractor):
                         -17: "EBLOCKED - User blocked",
                         -18: "EOVERQUOTA - Quota exceeded",
                     }
+                    retryable_codes = {-3, -4, -6}
                     if result == -9:
                         raise NotFound("File not found")
+                    if result in retryable_codes and attempt < max_retries:
+                        await self._pacer.sleep(attempt)
+                        logger.info(
+                            f"Retrying Mega API request after {error_codes.get(result, f'error {result}')} "
+                            f"(attempt {attempt + 1}/{max_retries})"
+                        )
+                        continue
                     raise ExtractorError(error_codes.get(result, f"API error: {result}"))
 
                 if isinstance(result, list) and len(result) == 1 and isinstance(result[0], int):
@@ -171,8 +179,16 @@ class MegaExtractor(BaseExtractor):
                         -17: "EBLOCKED - User blocked",
                         -18: "EOVERQUOTA - Quota exceeded",
                     }
+                    retryable_codes = {-3, -4, -6}
                     if error_code == -9:
                         raise NotFound("File not found")
+                    if error_code in retryable_codes and attempt < max_retries:
+                        await self._pacer.sleep(attempt)
+                        logger.info(
+                            f"Retrying Mega API request after {error_codes.get(error_code, f'error {error_code}')} "
+                            f"(attempt {attempt + 1}/{max_retries})"
+                        )
+                        continue
                     raise ExtractorError(error_codes.get(error_code, f"API error: {error_code}"))
 
                 return result[0] if isinstance(result, list) else result

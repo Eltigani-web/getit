@@ -276,17 +276,19 @@ async def wait_for_retry_with_pacer(
         response = None
         try:
             response = await http_client.get(url)
-            response.raise_for_status()
+            if not response.ok:
+                response_text = await response.text()
+                if attempt == max_retries or not is_retryable:
+                    return False
+                if await pacer.handle_rate_limited(response_text):
+                    continue
+                await pacer.sleep()
+                continue
             pacer.reset()
             return True
-        except aiohttp.ClientResponseError as e:
+        except aiohttp.ClientError:
             if attempt == max_retries or not is_retryable:
                 return False
-
-            response_text = e.message or str(e.status or "")
-            if await pacer.handle_rate_limited(response_text):
-                continue
-
             await pacer.sleep()
         finally:
             if response is not None:

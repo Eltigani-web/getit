@@ -180,9 +180,12 @@ class DownloadHistory:
         if not self._db:
             return 0
 
-        cursor = await self._db.execute("SELECT MAX(version) FROM schema_versions")
-        row = await cursor.fetchone()
-        return row[0] if row and row[0] else 0
+        try:
+            cursor = await self._db.execute("SELECT MAX(version) FROM schema_versions")
+            row = await cursor.fetchone()
+            return row[0] if row and row[0] else 0
+        except aiosqlite.OperationalError:
+            return 0
 
     async def _create_tables(self) -> None:
         if not self._db:

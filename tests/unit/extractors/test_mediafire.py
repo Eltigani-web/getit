@@ -50,7 +50,7 @@ class TestMediaFireFloodDetection:
         flood_html = "<html>Your IP has been locked</html>"
         assert extractor._pacer.detect_flood_ip_lock(flood_html)
 
-    def test_no_flock_detection(self, mock_http):
+    def test_no_flood_detection(self, mock_http):
         extractor = MediaFireExtractor(mock_http)
         normal_html = "<html>Download your file</html>"
         assert not extractor._pacer.detect_flood_ip_lock(normal_html)
@@ -61,9 +61,8 @@ class TestMediaFireHashVerification:
         extractor = MediaFireExtractor(mock_http)
 
         with tempfile.NamedTemporaryFile(delete=False, mode="wb") as f:
+            f.write(b"Hello, World!")
             test_file = Path(f.name)
-            test_file.write_bytes(b"Hello, World!")
-            f.flush()
 
         try:
             result = extractor.verify_hash(
@@ -79,9 +78,8 @@ class TestMediaFireHashVerification:
         extractor = MediaFireExtractor(mock_http)
 
         with tempfile.NamedTemporaryFile(delete=False, mode="wb") as f:
+            f.write(b"Hello, World!")
             test_file = Path(f.name)
-            test_file.write_bytes(b"Hello, World!")
-            f.flush()
 
         try:
             result = extractor.verify_hash(str(test_file), "invalidhash", "sha256")

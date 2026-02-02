@@ -4,19 +4,17 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
-from typing import TYPE_CHECKING
 
+from getit.config import Settings
 from getit.core.downloader import DownloadStatus, DownloadTask
-from getit.core.manager import DownloadManager
-from getit.events import DOWNLOAD_COMPLETE, DOWNLOAD_ERROR, DOWNLOAD_PROGRESS
-from getit.tasks import TaskStatus
+from getit.core.manager import DownloadManager, DownloadResult
+from getit.events import DOWNLOAD_COMPLETE, DOWNLOAD_ERROR, DOWNLOAD_PROGRESS, EventBus
+from getit.extractors.base import FileInfo
+from getit.registry import ExtractorRegistry
+from getit.tasks import TaskInfo, TaskRegistry, TaskStatus
+from getit.utils.logging import get_logger
 
-if TYPE_CHECKING:
-    from getit.config import Settings
-    from getit.events import EventBus
-    from getit.extractors.base import FileInfo
-    from getit.registry import ExtractorRegistry
-    from getit.tasks import TaskInfo, TaskRegistry
+logger = get_logger(__name__)
 
 
 class DownloadService:
@@ -77,7 +75,7 @@ class DownloadService:
             self._event_bus.emit(DOWNLOAD_ERROR, {"task_id": task_id, "error": str(e)})
             raise
 
-    async def _finalize_download(self, task_id: str, results: list) -> None:
+    async def _finalize_download(self, task_id: str, results: list[DownloadResult]) -> None:
         failed = [r for r in results if not r.success]
         if failed:
             error_msg = "; ".join(r.error or "Unknown" for r in failed)
@@ -119,9 +117,15 @@ class DownloadService:
         if dl_task.progress.status == DownloadStatus.DOWNLOADING:
             status = TaskStatus.DOWNLOADING
 
-        asyncio.create_task(
-            self._task_registry.update_task(task_id, status=status, progress=progress_data)
-        )
+        async def _safe_update() -> None:
+            try:
+                await self._task_registry.update_task(
+                    task_id, status=status, progress=progress_data
+                )
+            except Exception:
+                logger.exception("Failed to update task %s progress", task_id)
+
+        asyncio.create_task(_safe_update())
 
         if dl_task.progress.status == DownloadStatus.DOWNLOADING:
             self._event_bus.emit(DOWNLOAD_PROGRESS, {"task_id": task_id, "progress": progress_data})
@@ -137,10 +141,17 @@ class DownloadService:
         return await self._task_registry.list_active()
 
     async def cancel(self, task_id: str) -> bool:
+        """Cancel a download task.
+
+        Note: This marks the task as cancelled in the registry but does not
+        immediately stop in-flight HTTP transfers. The download will stop
+        at the next progress callback check or chunk boundary.
+        """
         task = await self._task_registry.get_task(task_id)
         if not task:
             return False
         await self._task_registry.update_task(task_id, status=TaskStatus.CANCELLED)
+        self._event_bus.emit(DOWNLOAD_ERROR, {"task_id": task_id, "error": "Cancelled"})
         return True
 
     def _ensure_started(self) -> None:

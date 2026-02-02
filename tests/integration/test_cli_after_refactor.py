@@ -132,4 +132,4 @@ class TestCLIErrorHandling:
         result = runner.invoke(app, ["download", "-f", "/nonexistent/urls.txt"])
 
         assert result.exit_code != 0
-        assert "not found" in result.stdout.lower() or result.exit_code == 1
+        assert "not found" in result.stdout.lower() or "error" in result.stdout.lower()
