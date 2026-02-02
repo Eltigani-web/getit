@@ -20,12 +20,12 @@
 
 ## 🌟 Why GetIt?
 
-GetIt transforms the mundane task of downloading files from various hosting services into a seamless, visual experience. Whether you are a casual user wanting a simple download or a power user needing batch processing and encryption support, GetIt handles it all with style.
+GetIt transforms the mundane task of downloading files into a seamless, visual, and agentic experience. Whether you're a casual user wanting a simple download, a power user needing batch processing and encryption support, or an AI agent orchestrating complex workflows, GetIt handles it all with style and precision.
 
 ## ✨ Features
 
 - **Broad Host Support**: Seamlessly download from **GoFile**, **PixelDrain**, **MediaFire**, **1Fichier**, and **Mega.nz**.
-- **Stunning TUI**: innovative terminal interface that provides real-time progress visualization, speed metrics, and active management.
+- **Stunning TUI**: An immersive, dashboard-like terminal interface that provides real-time progress visualization, speed metrics, and active queue management.
 - **Robust CLI**: Complete command-line control for scripting and headless operations.
 - **Performance First**:
     - **Concurrent Downloads**: Maximize bandwidth by downloading multiple files at once.
@@ -36,6 +36,7 @@ GetIt transforms the mundane task of downloading files from various hosting serv
     - **Security**: Handles password-protected links and fully decrypts Mega.nz AES-CTR encryptions.
     - **Integrity**: Auto-verifies MD5/SHA256 checksums to ensure file safety.
 - **Cross-Platform**: Runs flawlessly on macOS, Linux, and Windows.
+- **AI-Ready**: Built-in Model Context Protocol (MCP) server allows AI agents to control downloads directly.
 
 ## 🚀 Quick Start
 
@@ -50,7 +51,7 @@ pip install getit-cli
 Or using Homebrew (macOS/Linux):
 
 ```bash
-brew tap ahmedeltigani/getit
+brew tap Eltigani-web/getit
 brew install getit
 ```
 
@@ -127,34 +128,39 @@ GetIt looks for `config.json` in:
 }
 ```
 
-### MCP Server (Agents)
+### 🤖 MCP Server (Agent Automation)
 
-GetIt ships with a Model Context Protocol (MCP) server for agent integrations.
+GetIt isn't just a tool for humans; it's built for agents. It ships with a **Model Context Protocol (MCP)** server, empowering AI assistants (like Claude, Cursor, and windsurf) to directly manage file downloads on your behalf.
 
-**Run the server (stdio transport):**
+**Why this matters:**
+Instead of copying links and running commands yourself, you can simply tell your AI: *"Download all the research papers from this list,"* and it will handle the rest—authenticating, queuing, and verifying files automatically.
+
+**Run the server:**
 ```bash
 getit-mcp
 # or
 python -m getit.mcp.server
 ```
 
-**Tools:**
-- `download(url, output_dir, password)`
-- `list_files(url, password)`
-- `get_download_status(task_id)`
-- `cancel_download(task_id)`
+**Capabilities:**
 
-**Resources:**
-- `active-downloads://list` (live updates)
+*   **🛠️ Tools**:
+    *   `download(url, ...)`: Agents can autonomously trigger downloads from any supported host.
+    *   `list_files(url)`: Agents can inspect remote folders and file metadata *before* downloading.
+    *   `get_download_status(task_id)`: Agents can poll for completion and handle errors.
+    *   `cancel_download(task_id)`: Agents can manage the queue and abort tasks.
 
-**Prompts:**
-- `download_workflow`
+*   **📡 Resources**:
+    *   `active-downloads://list`: A real-time stream of the active download queue, allowing agents to monitor progress live without polling.
+
+*   **📝 Prompts**:
+    *   `download_workflow`: A built-in guided workflow that helps agents navigate complex scenarios like password-protected files or ambiguous URLs.
 
 ## 🛠 Development
 
 We welcome contributions!
 
-1. **Clone**: `git clone https://github.com/ahmedeltigani/getit.git`
+1. **Clone**: `git clone https://github.com/Eltigani-web/getit.git`
 2. **Setup**: `pip install -e ".[dev]"`
 3. **Test**: `pytest`
 
