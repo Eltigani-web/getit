@@ -196,7 +196,6 @@ class HTTPClient:
             connector = aiohttp.TCPConnector(
                 limit=100,
                 limit_per_host=10,
-                enable_cleanup_closed=True,
                 force_close=False,
                 keepalive_timeout=300,
                 ttl_dns_cache=300,

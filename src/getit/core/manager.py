@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from getit.core.downloader import (
     DownloadStatus,
@@ -13,14 +14,12 @@ from getit.core.downloader import (
     ProgressCallback,
 )
 from getit.extractors.base import BaseExtractor, FileInfo
-from getit.extractors.gofile import GoFileExtractor
-from getit.extractors.mediafire import MediaFireExtractor
-from getit.extractors.mega import MegaExtractor
-from getit.extractors.onefichier import OneFichierExtractor
-from getit.extractors.pixeldrain import PixelDrainExtractor
 from getit.utils.http import HTTPClient
 from getit.utils.logging import get_logger
 from getit.utils.sanitize import sanitize_filename
+
+if TYPE_CHECKING:
+    from getit.registry import ExtractorRegistry
 
 logger = get_logger(__name__)
 
@@ -47,14 +46,6 @@ class DownloadResult:
 
 
 class DownloadManager:
-    EXTRACTORS: list[type[BaseExtractor]] = [
-        GoFileExtractor,
-        PixelDrainExtractor,
-        MediaFireExtractor,
-        OneFichierExtractor,
-        MegaExtractor,
-    ]
-
     def __init__(
         self,
         output_dir: Path,
@@ -64,6 +55,7 @@ class DownloadManager:
         speed_limit: int | None = None,
         max_retries: int = 3,
         requests_per_second: float = 10.0,
+        registry: ExtractorRegistry | None = None,
     ):
         self.output_dir = Path(output_dir)
         self.max_concurrent = max_concurrent
@@ -72,6 +64,7 @@ class DownloadManager:
         self.speed_limit = speed_limit
         self.max_retries = max_retries
         self.requests_per_second = requests_per_second
+        self._registry = registry
 
         self._http: HTTPClient | None = None
         self._tasks: list[DownloadTask] = []
@@ -103,7 +96,13 @@ class DownloadManager:
     def _init_extractors(self) -> None:
         if not self._http:
             return
-        for extractor_cls in self.EXTRACTORS:
+        # Import extractors module to trigger @ExtractorRegistry.register decorators
+        import getit.extractors  # noqa: F401
+
+        from getit.registry import ExtractorRegistry
+
+        registry = self._registry or ExtractorRegistry
+        for extractor_cls in registry.list():
             extractor = extractor_cls(self._http)
             self._extractors[extractor_cls.EXTRACTOR_NAME] = extractor
 
