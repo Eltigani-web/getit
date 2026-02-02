@@ -27,7 +27,11 @@ from textual.widgets import (
 from getit.config import get_settings, save_config
 from getit.core.downloader import DownloadStatus, DownloadTask
 from getit.core.manager import DownloadManager
+from getit.events import EventBus
 from getit.extractors.base import InvalidURLError, validate_url_scheme
+from getit.registry import ExtractorRegistry
+from getit.service import DownloadService
+from getit.tasks import TaskRegistry
 from getit.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -666,6 +670,9 @@ class GetItApp(App):
         super().__init__()
         self.settings = get_settings()
         self.manager: DownloadManager | None = None
+        self.service: DownloadService | None = None
+        self._event_bus: EventBus | None = None
+        self._task_registry: TaskRegistry | None = None
         self.tasks: dict[str, DownloadTask] = {}
         self._update_timer: asyncio.Task | None = None
         self._term_width: int = 100
@@ -725,12 +732,18 @@ class GetItApp(App):
 
         table.cursor_type = "row"
 
-        self.manager = DownloadManager(
-            output_dir=self.settings.download_dir,
-            max_concurrent=self.settings.max_concurrent_downloads,
-            enable_resume=self.settings.enable_resume,
+        self._event_bus = EventBus()
+        self._task_registry = TaskRegistry()
+        self.service = DownloadService(
+            registry=ExtractorRegistry,
+            event_bus=self._event_bus,
+            task_registry=self._task_registry,
+            settings=self.settings,
         )
-        await self.manager.start()
+
+        await self._task_registry.connect()
+        await self.service.start()
+        self.manager = self.service._manager
 
         self._start_status_updates()
 
@@ -738,8 +751,10 @@ class GetItApp(App):
         if self._update_timer:
             self._update_timer.cancel()
         self.workers.cancel_all()
-        if self.manager:
-            await self.manager.close()
+        if self.service:
+            await self.service.close()
+        if self._task_registry:
+            await self._task_registry.close()
 
     def _start_status_updates(self) -> None:
         self._update_timer = asyncio.create_task(self._update_loop())
@@ -1021,17 +1036,17 @@ class GetItApp(App):
         password: str | None = None,
         output_dir: Path | None = None,
     ) -> None:
-        if not self.manager:
+        if not self.manager or not self.service:
             return
 
         try:
-            extractor = self.manager.get_extractor(url)
-            if not extractor:
+            extractor_cls = ExtractorRegistry.get_for_url(url)
+            if not extractor_cls:
                 self.notify(f"No extractor for: {url}", severity="error")
                 return
 
-            self.notify(f"Extracting from {extractor.EXTRACTOR_NAME}...")
-            files = await self.manager.extract_files(url, password)
+            self.notify(f"Extracting from {extractor_cls.EXTRACTOR_NAME}...")
+            files = await self.service.list_files(url, password)
 
             table = self.query_one("#downloads-table", DataTable)
 

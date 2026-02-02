@@ -21,9 +21,10 @@ from rich.table import Table
 
 from getit import __version__
 from getit.config import get_settings
-from getit.core.downloader import DownloadTask
-from getit.core.manager import DownloadManager, DownloadResult
-from getit.extractors.base import FileInfo
+from getit.events import DOWNLOAD_COMPLETE, DOWNLOAD_ERROR, DOWNLOAD_PROGRESS, EventBus
+from getit.registry import ExtractorRegistry
+from getit.service import DownloadService
+from getit.tasks import TaskRegistry
 from getit.utils.logging import (
     get_logger,
     set_download_id,
@@ -80,27 +81,34 @@ class ProgressTracker:
         self.progress = progress
         self.task_ids: dict[str, TaskID] = {}
 
-    def add_task(self, task: DownloadTask) -> TaskID:
+    def add_task(self, filename: str, total: int, file_task_id: str) -> TaskID:
         task_id = self.progress.add_task(
             "download",
-            filename=task.file_info.filename[:40],
-            total=task.progress.total or 0,
+            filename=filename[:40],
+            total=total,
             start=True,
         )
-        self.task_ids[task.task_id] = task_id
+        self.task_ids[file_task_id] = task_id
         return task_id
 
-    def update(self, task: DownloadTask) -> None:
-        if task.task_id not in self.task_ids:
-            self.add_task(task)
+    def update_from_event(self, progress_data: dict) -> None:
+        file_task_id = progress_data.get("file_task_id")
+        if not file_task_id:
+            return
 
-        progress_task_id = self.task_ids[task.task_id]
+        if file_task_id not in self.task_ids:
+            filename = progress_data.get("filename", "unknown")
+            total = int(progress_data.get("total", 0))
+            self.add_task(filename, total, file_task_id)
 
-        if task.progress.total > 0:
+        progress_task_id = self.task_ids[file_task_id]
+
+        total = int(progress_data.get("total", 0))
+        if total > 0:
             self.progress.update(
                 progress_task_id,
-                completed=task.progress.downloaded,
-                total=task.progress.total,
+                completed=int(progress_data.get("downloaded", 0)),
+                total=total,
             )
         else:
             self.progress.update(
@@ -163,42 +171,55 @@ def download(
         console.print("[red]No URLs provided. Use positional arguments or -f/--file[/red]")
         raise typer.Exit(1)
 
-    settings = get_settings()
-    output_dir = output or settings.download_dir
-
-    speed_limit = None
-    if limit:
-        match = re.match(r"(\d+(?:\.\d+)?)\s*([KMG])?", limit, re.I)
-        if match:
-            value = float(match.group(1))
-            unit = (match.group(2) or "").upper()
-            multipliers = {"K": 1024, "M": 1024**2, "G": 1024**3, "": 1}
-            speed_limit = int(value * multipliers.get(unit, 1))
-
     async def run_downloads() -> None:
         with set_run_id():
             logger.info("Starting download session", extra={"url_count": len(all_urls)})
 
-            async with DownloadManager(
-                output_dir=output_dir,
-                max_concurrent=concurrent,
-                enable_resume=not no_resume,
-                speed_limit=speed_limit,
-            ) as manager:
-                all_tasks: list[DownloadTask] = []
+            settings = get_settings()
+            output_dir_resolved = output or settings.download_dir
+
+            speed_limit_bytes = None
+            if limit:
+                match = re.match(r"(\d+(?:\.\d+)?)\s*([KMG])?", limit, re.I)
+                if match:
+                    value = float(match.group(1))
+                    unit = (match.group(2) or "").upper()
+                    multipliers = {"K": 1024, "M": 1024**2, "G": 1024**3, "": 1}
+                    speed_limit_bytes = int(value * multipliers.get(unit, 1))
+
+            settings.max_concurrent_downloads = concurrent
+            settings.enable_resume = not no_resume
+            if speed_limit_bytes is not None:
+                settings.speed_limit = speed_limit_bytes
+
+            event_bus = EventBus()
+            task_registry = TaskRegistry()
+            registry = ExtractorRegistry
+            service = DownloadService(
+                registry=registry,
+                event_bus=event_bus,
+                task_registry=task_registry,
+                settings=settings,
+            )
+
+            await task_registry.connect()
+            await service.start()
+
+            try:
                 extraction_semaphore = asyncio.Semaphore(10)
 
-                async def extract_url(url: str) -> list[FileInfo]:
+                async def extract_url(url: str) -> tuple[str, list]:
                     async with extraction_semaphore:
-                        extractor = manager.get_extractor(url)
-                        if not extractor:
+                        extractor_cls = ExtractorRegistry.get_for_url(url)
+                        if not extractor_cls:
                             console.print(f"[red]No extractor found for:[/red] {url}")
-                            return []
+                            return (url, [])
                         try:
-                            return await manager.extract_files(url, password)
+                            files = await service.list_files(url, password)
+                            return (url, files)
                         except Exception as e:
                             console.print(f"[red]Error extracting {url}:[/red] {e}")
-                            return []
+                            return (url, [])
 
                 with console.status(
                     f"[bold green]Extracting {len(all_urls)} URL(s) in parallel..."
@@ -207,43 +228,73 @@ def download(
                         *[extract_url(url) for url in all_urls]
                     )
 
-                for files in extraction_results:
+                file_count = 0
+                for url, files in extraction_results:
                     for file_info in files:
-                        task = manager.create_task(file_info)
-                        all_tasks.append(task)
+                        file_count += 1
                         console.print(
                             f"  [green]✓[/green] {file_info.filename} "
                             f"[dim]({format_size(file_info.size)})[/dim]"
                         )
 
-                if not all_tasks:
+                if file_count == 0:
                     console.print("[yellow]No files to download[/yellow]")
                     return
 
-                console.print(f"\n[bold]Starting download of {len(all_tasks)} file(s)...[/bold]\n")
+                console.print(f"\n[bold]Starting download of {file_count} file(s)...[/bold]\n")
 
                 progress = create_progress()
                 tracker = ProgressTracker(progress)
 
-                for task in all_tasks:
-                    tracker.add_task(task)
+                completed_files: set[str] = set()
+                failed_files: set[str] = set()
+
+                def on_progress(data: dict) -> None:
+                    progress_data = data.get("progress", {})
+                    if progress_data:
+                        tracker.update_from_event(progress_data)
+
+                event_bus.subscribe(DOWNLOAD_PROGRESS, on_progress)
+
+                def on_complete(data: dict) -> None:
+                    file_task_id = data.get("file_task_id")
+                    if file_task_id and file_task_id not in failed_files:
+                        completed_files.add(file_task_id)
+
+                def on_error(data: dict) -> None:
+                    file_task_id = data.get("file_task_id")
+                    if file_task_id and file_task_id not in completed_files:
+                        failed_files.add(file_task_id)
+
+                event_bus.subscribe(DOWNLOAD_COMPLETE, on_complete)
+                event_bus.subscribe(DOWNLOAD_ERROR, on_error)
 
                 with progress:
+                    download_tasks = []
+                    for url, files in extraction_results:
+                        if files:
 
-                    async def download_task(task: DownloadTask) -> DownloadResult:
-                        with set_download_id(task.task_id):
-                            logger.info("Starting download: %s", task.file_info.filename)
-                            return await manager.download_task(task, on_progress=tracker.update)
+                            async def download_with_logging(url: str) -> str:
+                                with set_download_id(url[:50]):
+                                    logger.info("Starting download: %s", url)
+                                    return await service.download(
+                                        url, output_dir_resolved, password
+                                    )
 
-                    download_coros = [download_task(task) for task in all_tasks]
-                    results = await asyncio.gather(*download_coros)
+                            download_tasks.append(download_with_logging(url))
 
-                success_count = sum(1 for r in results if r.success)
-                fail_count = len(results) - success_count
+                    results = await asyncio.gather(*download_tasks, return_exceptions=True)
+
+                exception_failures = sum(1 for r in results if isinstance(r, Exception))
+                success_count = len(completed_files)
+                fail_count = len(failed_files) + exception_failures
 
                 logger.info(
                     "Download session completed: %d succeeded, %d failed", success_count, fail_count
                 )
+            finally:
+                await service.close()
+                await task_registry.close()
 
     asyncio.run(run_downloads())
 
@@ -257,18 +308,30 @@ def info(
     ] = None,
 ) -> None:
     async def get_info() -> None:
-        async with DownloadManager(
-            output_dir=Path.cwd(),
-        ) as manager:
-            extractor = manager.get_extractor(url)
-            if not extractor:
+        settings = get_settings()
+        event_bus = EventBus()
+        task_registry = TaskRegistry()
+        registry = ExtractorRegistry
+        service = DownloadService(
+            registry=registry,
+            event_bus=event_bus,
+            task_registry=task_registry,
+            settings=settings,
+        )
+
+        await task_registry.connect()
+        await service.start()
+
+        try:
+            extractor_cls = ExtractorRegistry.get_for_url(url)
+            if not extractor_cls:
                 console.print(f"[red]No extractor found for:[/red] {url}")
                 return
 
-            console.print(f"[bold]Extractor:[/bold] {extractor.EXTRACTOR_NAME}")
+            console.print(f"[bold]Extractor:[/bold] {extractor_cls.EXTRACTOR_NAME}")
 
             try:
-                files = await manager.extract_files(url, password)
+                files = await service.list_files(url, password)
 
                 table = Table(title=f"Files ({len(files)})")
                 table.add_column("Filename", style="cyan")
@@ -289,6 +352,9 @@ def info(
 
             except Exception as e:
                 console.print(f"[red]Error:[/red] {e}")
+        finally:
+            await service.close()
+            await task_registry.close()
 
     asyncio.run(get_info())
 
