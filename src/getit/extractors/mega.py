@@ -17,6 +17,7 @@ from getit.extractors.base import (
     FolderInfo,
     NotFound,
 )
+from getit.registry import ExtractorRegistry
 from getit.utils.pacer import Pacer
 
 if TYPE_CHECKING:
@@ -64,6 +65,7 @@ def decrypt_attr(attr: bytes, key: list[int]) -> dict[str, Any]:
         return {}
 
 
+@ExtractorRegistry.register
 class MegaExtractor(BaseExtractor):
     SUPPORTED_DOMAINS: ClassVar[tuple[str, ...]] = ("mega.nz", "mega.co.nz", "mega.io")
     EXTRACTOR_NAME: ClassVar[str] = "mega"

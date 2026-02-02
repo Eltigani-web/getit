@@ -16,6 +16,7 @@ from getit.extractors.base import (
     NotFound,
     parse_size_string,
 )
+from getit.registry import ExtractorRegistry
 from getit.utils.pacer import Pacer
 
 if TYPE_CHECKING:
@@ -24,6 +25,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+@ExtractorRegistry.register
 class MediaFireExtractor(BaseExtractor):
     SUPPORTED_DOMAINS: ClassVar[tuple[str, ...]] = ("mediafire.com",)
     EXTRACTOR_NAME: ClassVar[str] = "mediafire"
