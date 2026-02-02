@@ -127,6 +127,29 @@ GetIt looks for `config.json` in:
 }
 ```
 
+### MCP Server (Agents)
+
+GetIt ships with a Model Context Protocol (MCP) server for agent integrations.
+
+**Run the server (stdio transport):**
+```bash
+getit-mcp
+# or
+python -m getit.mcp.server
+```
+
+**Tools:**
+- `download(url, output_dir, password)`
+- `list_files(url, password)`
+- `get_download_status(task_id)`
+- `cancel_download(task_id)`
+
+**Resources:**
+- `active-downloads://list` (live updates)
+
+**Prompts:**
+- `download_workflow`
+
 ## 🛠 Development
 
 We welcome contributions!
@@ -144,7 +167,14 @@ For detailed information about the project's production readiness status, risk r
 - **`core/downloader.py`**: Async engine handling HTTP streams and decryption.
 - **`core/manager.py`**: Semaphore-based orchestrator for concurrency.
 - **`extractors/`**: Modular logic for each file host.
+- **`registry.py`**: Extractor registration and URL routing.
+- **`service.py`**: Facade for downloads + task tracking.
+- **`tasks.py`**: Persistent task registry (SQLite).
+- **`events.py`**: Event bus for progress streaming.
+- **`mcp/`**: MCP server (tools, resources, prompts).
 - **`tui/app.py`**: Textual-based interface implementation.
+
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for full details.
 
 ## 📄 License
 
