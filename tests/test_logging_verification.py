@@ -7,6 +7,7 @@ Tests:
 3. Secret redaction
 4. NO_COLOR flag disables ANSI
 5. Non-TTY output (piped) uses JSON
+6. No handler accumulation across setup/shutdown cycles
 """
 
 from __future__ import annotations
@@ -243,6 +244,8 @@ def test_non_tty_uses_json() -> None:
     """Test non-TTY output (piped) uses JSON by default."""
     env = os.environ.copy()
     env["TERM"] = "dumb"
+    env.pop("LOG_FORMAT", None)
+    env.pop("LOG_LEVEL", None)
 
     script_dir = Path(__file__).parent.parent / "src"
     script = f"""
@@ -299,6 +302,104 @@ shutdown_logging()
         raise
 
 
+def test_no_handler_accumulation() -> None:
+    """Test that setup/shutdown cycles don't accumulate handlers."""
+    env = os.environ.copy()
+    env["LOG_FORMAT"] = "json"
+    env["LOG_LEVEL"] = "INFO"
+
+    script_dir = Path(__file__).parent.parent / "src"
+    script = f"""
+import sys
+import os
+import logging
+import json
+from time import sleep
+sys.path.insert(0, '{script_dir}')
+from getit.utils.logging import setup_logging, get_logger, shutdown_logging
+
+# First cycle
+setup_logging()
+logger = get_logger("test1")
+
+# Log in first cycle
+logger.info("First cycle message")
+
+# Small delay to ensure queue is drained
+sleep(0.1)
+
+# Check handler count before shutdown
+root_logger = logging.getLogger()
+handlers_before_shutdown = len(root_logger.handlers)
+print(f"HANDLERS_BEFORE_SHUTDOWN: {{handlers_before_shutdown}}", flush=True)
+
+shutdown_logging()
+
+# Second cycle
+setup_logging()
+logger2 = get_logger("test2")
+
+# Check handler count after second setup
+root_logger = logging.getLogger()
+handlers_after_second_setup = len(root_logger.handlers)
+print(f"HANDLERS_AFTER_SECOND_SETUP: {{handlers_after_second_setup}}", flush=True)
+
+# Log in second cycle
+logger2.info("Second cycle message")
+
+# Small delay to ensure queue is drained
+sleep(0.1)
+
+shutdown_logging()
+"""
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+        f.write(script)
+        temp_file = f.name
+
+    try:
+        result = subprocess.run(
+            [sys.executable, temp_file],
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+    finally:
+        os.unlink(temp_file)
+
+    print("=== Test 6: No handler accumulation across cycles ===")
+    print("STDOUT:", result.stdout)
+    print("STDERR:", result.stderr)
+    assert result.returncode == 0, f"Script failed: {result.stderr}"
+
+    handler_lines = [line for line in result.stdout.split("\n") if "HANDLERS_" in line]
+    assert len(handler_lines) == 2, f"Expected 2 handler count lines, got {len(handler_lines)}"
+
+    before_shutdown = int(handler_lines[0].split(": ")[1])
+    after_second_setup = int(handler_lines[1].split(": ")[1])
+
+    print(f"Handlers before first shutdown: {before_shutdown}")
+    print(f"Handlers after second setup: {after_second_setup}")
+
+    assert before_shutdown == 1, f"Expected 1 handler before first shutdown, got {before_shutdown}"
+    assert after_second_setup == 1, (
+        f"Expected 1 handler after second setup (no accumulation), got {after_second_setup}"
+    )
+
+    lines = [line for line in result.stdout.strip().split("\n") if line]
+    log_lines = [line for line in lines if "cycle message" in line]
+    assert len(log_lines) == 2, f"Expected 2 log messages (one per cycle), got {len(log_lines)}"
+
+    for line in log_lines:
+        log_entry = json.loads(line)
+        assert "message" in log_entry, f"Missing 'message' in log entry: {log_entry}"
+        assert log_entry["message"] in ["First cycle message", "Second cycle message"], (
+            f"Unexpected message: {log_entry['message']}"
+        )
+
+    print("✓ No handler accumulation across setup/shutdown cycles\n")
+
+
 def main() -> int:
     """Run all verification tests."""
     print("Starting structured logging verification tests\n")
@@ -309,6 +410,7 @@ def main() -> int:
         test_secret_redaction,
         test_no_color_disables_ansi,
         test_non_tty_uses_json,
+        test_no_handler_accumulation,
     ]
 
     for test in tests:

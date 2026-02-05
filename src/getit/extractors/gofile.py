@@ -15,6 +15,7 @@ from getit.extractors.base import (
     NotFound,
     PasswordRequired,
 )
+from getit.registry import ExtractorRegistry
 
 if TYPE_CHECKING:
     from getit.utils.http import HTTPClient
@@ -24,6 +25,7 @@ from getit.utils.logging import get_logger
 logger = get_logger(__name__)
 
 
+@ExtractorRegistry.register
 class GoFileExtractor(BaseExtractor):
     SUPPORTED_DOMAINS: ClassVar[tuple[str, ...]] = ("gofile.io",)
     EXTRACTOR_NAME: ClassVar[str] = "gofile"

@@ -27,6 +27,14 @@ from textual.widgets import (
 from getit.config import get_settings, save_config
 from getit.core.downloader import DownloadStatus, DownloadTask
 from getit.core.manager import DownloadManager
+from getit.events import EventBus
+from getit.extractors.base import InvalidURLError, validate_url_scheme
+from getit.registry import ExtractorRegistry
+from getit.service import DownloadService
+from getit.tasks import TaskRegistry
+from getit.utils.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 def _count_tasks_by_status(tasks: dict[str, DownloadTask]) -> tuple[int, int, int, int, float]:
@@ -297,6 +305,16 @@ class AddUrlScreen(ModalScreen[tuple[list[str], str | None, str | None] | None])
         color: $text-muted;
         margin-bottom: 1;
     }
+
+    #error-label {
+        color: $error;
+        margin-bottom: 1;
+        display: none;
+    }
+
+    #error-label.visible {
+        display: block;
+    }
     """
 
     BINDINGS = [
@@ -308,6 +326,7 @@ class AddUrlScreen(ModalScreen[tuple[list[str], str | None, str | None] | None])
             yield Label("Add Download URLs")
             yield Static("Enter URLs (one per line)", classes="hint")
             yield TextArea(id="url-area")
+            yield Static("", id="error-label")
             yield Input(
                 placeholder="Password (optional, applies to all)",
                 id="password_input",
@@ -330,21 +349,41 @@ class AddUrlScreen(ModalScreen[tuple[list[str], str | None, str | None] | None])
         url_area = self.query_one("#url-area", TextArea)
         password_input = self.query_one("#password_input", Input)
         folder_input = self.query_one("#folder_input", Input)
+        error_label = self.query_one("#error-label", Static)
 
         text = url_area.text.strip()
         password = password_input.value.strip() or None
         folder = folder_input.value.strip() or None
 
-        urls = [
-            line.strip()
-            for line in text.splitlines()
-            if line.strip() and not line.strip().startswith("#") and line.strip().startswith("http")
-        ]
+        error_label.update("")
+        error_label.remove_class("visible")
 
-        if urls:
-            self.dismiss((urls, password, folder))
+        valid_urls: list[str] = []
+        invalid_urls: list[str] = []
+
+        for line in text.splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            try:
+                validate_url_scheme(line)
+                valid_urls.append(line)
+            except InvalidURLError:
+                invalid_urls.append(line[:40])
+
+        if valid_urls:
+            if invalid_urls:
+                preview = ", ".join(invalid_urls[:3])
+                if len(invalid_urls) > 3:
+                    preview += f" (+{len(invalid_urls) - 3} more)"
+                self.app.notify(f"Skipped invalid: {preview}", severity="warning", timeout=5)
+            self.dismiss((valid_urls, password, folder))
         else:
-            self.app.notify("No valid URLs entered", severity="warning")
+            if invalid_urls:
+                error_label.update("Invalid URLs. Must start with http:// or https://")
+            else:
+                error_label.update("Enter at least one URL")
+            error_label.add_class("visible")
 
 
 class ErrorDetailsScreen(ModalScreen[None]):
@@ -631,6 +670,9 @@ class GetItApp(App):
         super().__init__()
         self.settings = get_settings()
         self.manager: DownloadManager | None = None
+        self.service: DownloadService | None = None
+        self._event_bus: EventBus | None = None
+        self._task_registry: TaskRegistry | None = None
         self.tasks: dict[str, DownloadTask] = {}
         self._update_timer: asyncio.Task | None = None
         self._term_width: int = 100
@@ -690,12 +732,18 @@ class GetItApp(App):
 
         table.cursor_type = "row"
 
-        self.manager = DownloadManager(
-            output_dir=self.settings.download_dir,
-            max_concurrent=self.settings.max_concurrent_downloads,
-            enable_resume=self.settings.enable_resume,
+        self._event_bus = EventBus()
+        self._task_registry = TaskRegistry()
+        self.service = DownloadService(
+            registry=ExtractorRegistry,
+            event_bus=self._event_bus,
+            task_registry=self._task_registry,
+            settings=self.settings,
         )
-        await self.manager.start()
+
+        await self._task_registry.connect()
+        await self.service.start()
+        self.manager = self.service._manager
 
         self._start_status_updates()
 
@@ -703,8 +751,10 @@ class GetItApp(App):
         if self._update_timer:
             self._update_timer.cancel()
         self.workers.cancel_all()
-        if self.manager:
-            await self.manager.close()
+        if self.service:
+            await self.service.close()
+        if self._task_registry:
+            await self._task_registry.close()
 
     def _start_status_updates(self) -> None:
         self._update_timer = asyncio.create_task(self._update_loop())
@@ -743,8 +793,8 @@ class GetItApp(App):
                     table.update_cell(task_id, speed_key, speed)  # type: ignore[arg-type]  # Textual DataTable stubs incomplete
                 if self._term_width >= 100 and eta_key:
                     table.update_cell(task_id, eta_key, eta)  # type: ignore[arg-type]  # Textual DataTable stubs incomplete
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Failed to update table cell for task %s: %s", task_id, e)
 
     def _create_progress_bar(self, percentage: float) -> str:
         width = 10
@@ -784,18 +834,28 @@ class GetItApp(App):
             self.notify(f"Adding {len(urls)} URL(s)...")
 
         success_count = 0
+        failed_urls: list[tuple[str, str]] = []
         for url in urls:
             try:
                 await self._add_download(url, password, batch_output_dir)  # type: ignore[misc]
                 success_count += 1
-            except Exception:
-                pass
+            except Exception as e:
+                error_msg = str(e) if str(e) else type(e).__name__
+                failed_urls.append((url[:50], error_msg))
+                logger.warning("Failed to add URL %s: %s", url, error_msg)
 
         if len(urls) > 1:
-            self.notify(
-                f"Added {success_count}/{len(urls)} URL(s)",
-                severity="information" if success_count > 0 else "warning",
-            )
+            if failed_urls:
+                failure_preview = "; ".join(f"{url}: {err[:30]}" for url, err in failed_urls[:3])
+                if len(failed_urls) > 3:
+                    failure_preview += f" (+{len(failed_urls) - 3} more)"
+                self.notify(
+                    f"Added {success_count}/{len(urls)}. Failures: {failure_preview}",
+                    severity="warning",
+                    timeout=8,
+                )
+            else:
+                self.notify(f"Added {success_count}/{len(urls)} URL(s)", severity="information")
 
     @on(Button.Pressed, "#add-btn")
     async def on_add_button(self) -> None:
@@ -842,19 +902,29 @@ class GetItApp(App):
             self.notify(f"Importing {len(urls)} URL(s)...")
 
             success_count = 0
+            failed_urls: list[tuple[str, str]] = []
             for url in urls:
                 try:
                     await self._add_download(  # type: ignore[misc]  # Textual Worker
                         url, password, batch_output_dir
                     )
                     success_count += 1
-                except Exception:
-                    pass
+                except Exception as e:
+                    error_msg = str(e) if str(e) else type(e).__name__
+                    failed_urls.append((url[:50], error_msg))
+                    logger.warning("Failed to import URL %s: %s", url, error_msg)
 
-            self.notify(
-                f"Imported {success_count}/{len(urls)} URL(s)",
-                severity="information" if success_count > 0 else "warning",
-            )
+            if failed_urls:
+                failure_preview = "; ".join(f"{url}: {err[:30]}" for url, err in failed_urls[:3])
+                if len(failed_urls) > 3:
+                    failure_preview += f" (+{len(failed_urls) - 3} more)"
+                self.notify(
+                    f"Imported {success_count}/{len(urls)}. Failures: {failure_preview}",
+                    severity="warning",
+                    timeout=8,
+                )
+            else:
+                self.notify(f"Imported {success_count}/{len(urls)} URL(s)", severity="information")
 
         except Exception as e:
             self.notify(f"Error reading file: {e}", severity="error")
@@ -872,17 +942,33 @@ class GetItApp(App):
         with open(path, encoding="utf-8") as f:
             lines = f.readlines()
 
-        urls = [
-            line.strip()
-            for line in lines
-            if line.strip() and not line.strip().startswith("#") and line.strip().startswith("http")
-        ]
+        valid_urls: list[str] = []
+        invalid_count = 0
 
-        if not urls:
-            self.notify("No valid URLs found in file", severity="warning")
+        for line in lines:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            try:
+                validate_url_scheme(line)
+                valid_urls.append(line)
+            except InvalidURLError:
+                invalid_count += 1
+
+        if not valid_urls:
+            if invalid_count > 0:
+                self.notify(
+                    f"No valid URLs found ({invalid_count} invalid entries skipped)",
+                    severity="warning",
+                )
+            else:
+                self.notify("No URLs found in file", severity="warning")
             return None
 
-        return urls
+        if invalid_count > 0:
+            self.notify(f"Skipped {invalid_count} invalid URL(s)", severity="warning", timeout=3)
+
+        return valid_urls
 
     def _create_batch_folder(self, custom_folder: str | None) -> Path | None:
         if not custom_folder:
@@ -940,8 +1026,8 @@ class GetItApp(App):
             try:
                 table.remove_row(tid)
                 del self.tasks[tid]
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Failed to remove row %s: %s", tid, e)
 
     @work(exclusive=False)
     async def _add_download(
@@ -950,17 +1036,17 @@ class GetItApp(App):
         password: str | None = None,
         output_dir: Path | None = None,
     ) -> None:
-        if not self.manager:
+        if not self.manager or not self.service:
             return
 
         try:
-            extractor = self.manager.get_extractor(url)
-            if not extractor:
+            extractor_cls = ExtractorRegistry.get_for_url(url)
+            if not extractor_cls:
                 self.notify(f"No extractor for: {url}", severity="error")
                 return
 
-            self.notify(f"Extracting from {extractor.EXTRACTOR_NAME}...")
-            files = await self.manager.extract_files(url, password)
+            self.notify(f"Extracting from {extractor_cls.EXTRACTOR_NAME}...")
+            files = await self.service.list_files(url, password)
 
             table = self.query_one("#downloads-table", DataTable)
 
@@ -1002,7 +1088,8 @@ class GetItApp(App):
             row_key, _ = table.coordinate_to_cell_key(table.cursor_coordinate)
             task_id = str(row_key.value)
             return self.tasks.get(task_id)
-        except Exception:
+        except Exception as e:
+            logger.debug("Failed to get selected task: %s", e)
             return None
 
     def _get_table_row_for_task(self, task: DownloadTask, initial_bar: str) -> tuple[tuple, str]:

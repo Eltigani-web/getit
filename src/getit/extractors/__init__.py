@@ -1,3 +1,15 @@
 from getit.extractors.base import BaseExtractor, ExtractorError, FileInfo
 
-__all__ = ["BaseExtractor", "FileInfo", "ExtractorError"]
+# Import extractor modules to trigger @ExtractorRegistry.register decorators
+from . import gofile, mediafire, mega, onefichier, pixeldrain
+
+__all__ = [
+    "BaseExtractor",
+    "ExtractorError",
+    "FileInfo",
+    "gofile",
+    "mega",
+    "mediafire",
+    "onefichier",
+    "pixeldrain",
+]

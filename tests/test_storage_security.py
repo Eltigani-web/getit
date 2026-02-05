@@ -200,16 +200,16 @@ class TestSchemaVersioning:
 
     @pytest.mark.asyncio
     async def test_get_schema_version_auto_creates_if_missing(self):
-        """get_schema_version() returns current version even if table was empty (auto-created)."""
+        """get_schema_version() returns current version when table is missing."""
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = Path(tmpdir) / "history.db"
 
             db_path.parent.mkdir(parents=True, exist_ok=True)
             conn = sqlite3.connect(str(db_path))
+            conn.execute("DROP TABLE IF EXISTS schema_versions")
             conn.execute("""
-                CREATE TABLE schema_versions (
-                    version INTEGER PRIMARY KEY,
-                    applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                CREATE TABLE other_table (
+                    id INTEGER PRIMARY KEY
                 )
             """)
             conn.commit()
@@ -279,7 +279,7 @@ class TestSecretRedaction:
         assert "password=abc" in redacted
 
     def test_redact_empty_input(self):
-        """Empty or None input is handled gracefully."""
+        """Empty input is handled gracefully."""
         history = DownloadHistory(Path("test.db"))
         assert history._redact_secrets("") == ""
 

@@ -86,9 +86,10 @@ class Pacer:
             attempt: Attempt number (uses internal counter if None)
         """
         delay = self.calculate_backoff(attempt)
+        log_attempt = attempt if attempt is not None else self._attempt_count
         if attempt is None:
             self._attempt_count += 1
-        logger.debug(f"Pacer sleeping for {delay:.2f}s (attempt {self._attempt_count})")
+        logger.debug(f"Pacer sleeping for {delay:.2f}s (attempt {log_attempt})")
         await asyncio.sleep(delay)
 
     async def backoff(self, attempt: int | None = None) -> None:
@@ -218,8 +219,11 @@ class Pacer:
         """
         Handle rate-limited responses with flood detection and wait parsing.
 
+        Note: This function expects HTML body for wait time extraction,
+        but flood detection works with any text (error messages or HTML).
+
         Args:
-            response_text: Response text (HTML or plain text)
+            response_text: Response text or error message
 
         Returns:
             True if flood/IP-lock or wait was handled, False otherwise
@@ -272,17 +276,19 @@ async def wait_for_retry_with_pacer(
         response = None
         try:
             response = await http_client.get(url)
-            response.raise_for_status()
+            if not response.ok:
+                response_text = await response.text()
+                if attempt == max_retries or not is_retryable:
+                    return False
+                if await pacer.handle_rate_limited(response_text):
+                    continue
+                await pacer.sleep()
+                continue
             pacer.reset()
             return True
-        except aiohttp.ClientResponseError as e:
+        except aiohttp.ClientError:
             if attempt == max_retries or not is_retryable:
                 return False
-
-            response_text = e.message or str(e.status or "")
-            if await pacer.handle_rate_limited(response_text):
-                continue
-
             await pacer.sleep()
         finally:
             if response is not None:

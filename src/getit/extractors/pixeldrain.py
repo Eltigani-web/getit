@@ -10,11 +10,13 @@ from getit.extractors.base import (
     FolderInfo,
     NotFound,
 )
+from getit.registry import ExtractorRegistry
 
 if TYPE_CHECKING:
     from getit.utils.http import HTTPClient
 
 
+@ExtractorRegistry.register
 class PixelDrainExtractor(BaseExtractor):
     SUPPORTED_DOMAINS: ClassVar[tuple[str, ...]] = ("pixeldrain.com", "pixeldrain.net")
     EXTRACTOR_NAME: ClassVar[str] = "pixeldrain"

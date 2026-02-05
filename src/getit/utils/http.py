@@ -1,19 +1,42 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
+import logging
 import os
 import random
 import ssl
-from collections.abc import Awaitable, Callable
-from typing import TYPE_CHECKING, Any
+from collections.abc import AsyncIterator, Awaitable, Callable
+from typing import Any
 
 import aiohttp
 from aiolimiter import AsyncLimiter
 
-if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
-
 from getit import __version__
+
+"""HTTP client wrapper for aiohttp with rate limiting and retry logic.
+
+This module provides an async HTTP client with the following features:
+- Rate limiting via AsyncLimiter
+- Exponential backoff with jitter for retries
+- Automatic retry on transient errors
+- Rate limit (429) handling with Retry-After header support
+- SSL/TLS certificate customization via environment variables
+- Proxy support via environment variables (delegated to aiohttp's trust_env=True)
+
+SSL Certificate Customization:
+    The HTTPClient supports custom SSL certificates through environment variables:
+    - SSL_CERT_FILE: Path to a PEM-encoded certificate bundle file
+    - SSL_CERT_DIR: Path to a directory containing certificate files
+
+    Fallback Behavior:
+    If custom SSL certificates fail to load (e.g., file not found, invalid format,
+    permission denied), the client logs a warning and falls back to system default
+    certificate bundles. This ensures the application continues to work with public
+    HTTPS endpoints even if custom certificate paths are misconfigured.
+"""
+
+logger = logging.getLogger(__name__)
 
 
 class RateLimitError(Exception):
@@ -36,8 +59,13 @@ class HTTPClient:
     ):
         if settings is not None:
             self._requests_per_second = getattr(settings, "requests_per_second", 10.0)
-            self._timeout_connect = getattr(settings, "timeout_connect", 30.0) or 30.0
-            self._timeout_sock_read = getattr(settings, "timeout_sock_read", 300.0) or 300.0
+
+            connect_timeout = getattr(settings, "timeout_connect", None)
+            self._timeout_connect = 30.0 if connect_timeout is None else connect_timeout
+
+            sock_read_timeout = getattr(settings, "timeout_sock_read", None)
+            self._timeout_sock_read = 300.0 if sock_read_timeout is None else sock_read_timeout
+
             self._timeout_total = getattr(settings, "timeout_total", None)
             self._max_retries = getattr(settings, "max_retries", 3)
             self._chunk_timeout = getattr(settings, "chunk_timeout", None)
@@ -64,28 +92,28 @@ class HTTPClient:
             "Accept-Encoding": "gzip, deflate, br",
         }
 
-        self._proxy = self._get_proxy_config()
         self._ssl_context = self._get_ssl_context()
-
-    def _get_proxy_config(self) -> str | None:
-        http_proxy = os.environ.get("HTTP_PROXY") or os.environ.get("http_proxy")
-        https_proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy")
-        no_proxy = os.environ.get("NO_PROXY") or os.environ.get("no_proxy")
-
-        if no_proxy:
-            os.environ["no_proxy"] = no_proxy
-
-        return https_proxy or http_proxy
 
     def _get_ssl_context(self) -> ssl.SSLContext | None:
         ssl_cert_file = os.environ.get("SSL_CERT_FILE")
         ssl_cert_dir = os.environ.get("SSL_CERT_DIR")
 
-        if ssl_cert_file or ssl_cert_dir:
+        if not ssl_cert_file and not ssl_cert_dir:
+            return None
+
+        try:
             ctx = ssl.create_default_context()
             ctx.load_verify_locations(cafile=ssl_cert_file, capath=ssl_cert_dir)
             return ctx
-        return None
+        except (FileNotFoundError, OSError, ssl.SSLError) as e:
+            logger.warning(
+                "HTTPClient: Failed to load SSL certificates from %s%s: %s. "
+                "Falling back to system certificates.",
+                f"file={ssl_cert_file}" if ssl_cert_file else "",
+                f" dir={ssl_cert_dir}" if ssl_cert_dir else "",
+                e,
+            )
+            return None
 
     async def __aenter__(self) -> HTTPClient:
         await self.start()
@@ -168,7 +196,6 @@ class HTTPClient:
             connector = aiohttp.TCPConnector(
                 limit=100,
                 limit_per_host=10,
-                enable_cleanup_closed=True,
                 force_close=False,
                 keepalive_timeout=300,
                 ttl_dns_cache=300,
@@ -231,7 +258,11 @@ class HTTPClient:
             async with self.session.get(
                 url, headers=headers, params=params, cookies=cookies
             ) as resp:
-                resp.raise_for_status()
+                raise_for_status = resp.raise_for_status
+                if inspect.iscoroutinefunction(raise_for_status):
+                    await raise_for_status()
+                else:
+                    raise_for_status()
                 return await resp.json()
 
         return await self._with_retry(
@@ -250,7 +281,11 @@ class HTTPClient:
             async with self.session.get(
                 url, headers=headers, params=params, cookies=cookies
             ) as resp:
-                resp.raise_for_status()
+                raise_for_status = resp.raise_for_status
+                if inspect.iscoroutinefunction(raise_for_status):
+                    await raise_for_status()
+                else:
+                    raise_for_status()
                 return await resp.text()
 
         return await self._with_retry(
@@ -266,7 +301,11 @@ class HTTPClient:
         chunk_size: int = 1024 * 1024,
     ) -> AsyncIterator[tuple[bytes, int, int]]:
         async with self._limiter, self.session.get(url, headers=headers, cookies=cookies) as resp:
-            resp.raise_for_status()
+            raise_for_status = resp.raise_for_status
+            if inspect.iscoroutinefunction(raise_for_status):
+                await raise_for_status()
+            else:
+                raise_for_status()
             total = int(resp.headers.get("content-length", 0))
             downloaded = 0
             chunk_iter = resp.content.iter_chunked(chunk_size)

@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "getit": {
+      "command": "getit-mcp",
+      "args": [],
+      "env": {}
+    }
+  }
+}

@@ -14,6 +14,7 @@ from getit.extractors.base import (
     PasswordRequired,
     parse_size_string,
 )
+from getit.registry import ExtractorRegistry
 from getit.utils.pacer import Pacer
 
 if TYPE_CHECKING:
@@ -22,6 +23,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+@ExtractorRegistry.register
 class OneFichierExtractor(BaseExtractor):
     SUPPORTED_DOMAINS: ClassVar[tuple[str, ...]] = (
         "1fichier.com",
@@ -136,6 +138,7 @@ class OneFichierExtractor(BaseExtractor):
 
         if self._pacer.detect_flood_ip_lock(html):
             await self._pacer.handle_flood_ip_lock()
+            return None, None, -1
 
         wait_match = self.WAIT_PATTERN.search(html)
         if wait_match:
@@ -206,6 +209,18 @@ class OneFichierExtractor(BaseExtractor):
                 direct_link, filename, size = await self._parse_page(html, url, password)
 
                 if not direct_link:
+                    if size == -1 and attempt < max_retries:
+                        logger.info(
+                            f"Retrying 1Fichier extraction after flood detection (attempt {attempt + 1}/{max_retries})"
+                        )
+                        await self._pacer.sleep(attempt)
+                        continue
+                    if attempt < max_retries:
+                        logger.info(
+                            f"Retrying 1Fichier extraction (attempt {attempt + 1}/{max_retries})"
+                        )
+                        await self._pacer.sleep(attempt)
+                        continue
                     raise ExtractorError("Could not extract download link")
 
                 return [
@@ -223,7 +238,7 @@ class OneFichierExtractor(BaseExtractor):
                 if attempt == max_retries:
                     raise ExtractorError(f"Failed after {max_retries} retries: {e}") from e
 
-                await self._pacer.sleep(attempt)
                 logger.info(f"Retrying 1Fichier extraction (attempt {attempt + 1}/{max_retries})")
+                await self._pacer.sleep(attempt)
 
-        raise ExtractorError(f"Failed after {max_retries} retries")
+        raise ExtractorError("Failed to extract 1Fichier file list")

@@ -46,10 +46,27 @@ jobs:
       - name: Calculate wheel checksum
         id: checksum
         run: |
-          WHEEL=$(ls dist/*.whl)
-          SHA256=$(shasum -a 256 "$WHEEL" | cut -d' ' -f1)
-          echo "sha256=$SHA256" >> "$GITHUB_OUTPUT"
-          echo "Wheel SHA256: $SHA256"
+          python -c "
+          import sys
+          import hashlib
+          from pathlib import Path
+          
+          wheels = list(Path('dist').glob('*.whl'))
+          if len(wheels) == 0:
+              print('::error::No wheel files found in dist/', file=sys.stderr)
+              sys.exit(1)
+          elif len(wheels) > 1:
+              print(f'::error::Multiple wheel files found: {[w.name for w in wheels]}', file=sys.stderr)
+              sys.exit(1)
+          
+          wheel = wheels[0]
+          sha256 = hashlib.sha256(wheel.read_bytes()).hexdigest()
+          
+          with open('$GITHUB_OUTPUT', 'a') as f:
+              f.write(f'sha256={sha256}\n')
+          
+          print(f'Wheel SHA256: {sha256}')
+          "
 
       - name: Publish package distributions to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
@@ -84,7 +101,7 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/') }}
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
@@ -120,11 +137,42 @@ jobs:
           VERSION="${{ needs.pypi-publish.outputs.version }}"
           SHA256="${{ needs.pypi-publish.outputs.wheel_sha256 }}"
 
+          WHEEL_URL=$(python - <<'PY'
+import json
+import os
+import sys
+import urllib.request
+
+version = os.environ["VERSION"]
+filename = f"getit_cli-{version}-py3-none-any.whl"
+url = f"https://pypi.org/pypi/getit-cli/{version}/json"
+
+with urllib.request.urlopen(url) as response:
+    payload = json.load(response)
+
+for file_data in payload.get("urls", []):
+    if file_data.get("filename") == filename:
+        print(file_data.get("url"))
+        break
+else:
+    print(f"Wheel {filename} not found in PyPI metadata", file=sys.stderr)
+    sys.exit(1)
+PY
+          )
+
           FORMULA_FILE=".homebrew-tap/Formula/getit.rb"
 
           if [ -f "$FORMULA_FILE" ]; then
+            # Replace placeholders
             sed -i "s|{{VERSION}}|${VERSION}|g" "$FORMULA_FILE"
             sed -i "s|{{SHA256}}|${SHA256}|g" "$FORMULA_FILE"
+            
+            # Replace existing version line (url with actual version)
+            sed -i "s|url \"https://files.pythonhosted.org/packages/.*/getit_cli-[0-9.]*-py3-none-any.whl\"|url \"${WHEEL_URL}\"|g" "$FORMULA_FILE"
+            
+            # Replace existing sha256 line
+            sed -i "s|sha256 \"[a-f0-9]\{64\}\"|sha256 \"${SHA256}\"|g" "$FORMULA_FILE"
+            
             cat "$FORMULA_FILE"
           else
             echo "::warning::Formula file not found at $FORMULA_FILE, skipping Homebrew update"
@@ -137,8 +185,15 @@ jobs:
 
           if [ -f ".homebrew-tap/Formula/getit.rb" ]; then
             git add .homebrew-tap/Formula/getit.rb
-            git commit -m "chore: Update getit formula to ${{ needs.pypi-publish.outputs.version }}" || echo "No changes to commit"
-            git push origin HEAD:main || echo "::warning::Failed to push formula update"
+            if git diff --staged --quiet; then
+              echo "No changes to commit"
+            else
+              git commit -m "chore: Update getit formula to ${{ needs.pypi-publish.outputs.version }}"
+              if ! git push origin HEAD:main; then
+                echo "::error::Failed to push formula update"
+                exit 1
+              fi
+            fi
           fi
 
       - name: Sync to homebrew-tap repository

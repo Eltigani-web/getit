@@ -1,6 +1,7 @@
 """Configuration management using Pydantic Settings."""
 
 import json
+import sys
 from pathlib import Path
 
 from pydantic import Field
@@ -10,7 +11,6 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 def get_default_config_dir() -> Path:
     """Get the default configuration directory."""
     import os
-    import sys
 
     if sys.platform == "darwin":
         config_dir = Path.home() / "Library" / "Application Support" / "getit"
@@ -128,7 +128,8 @@ def save_config(settings: Settings) -> None:
     with open(config_path, "w", encoding="utf-8") as f:
         json.dump(config_data, f, indent=2)
     # Set restrictive permissions: rw------- (only owner can read/write)
-    config_path.chmod(0o600)
+    if sys.platform != "win32":
+        config_path.chmod(0o600)
 
 
 # Global settings instance

@@ -16,6 +16,7 @@ from getit.extractors.base import (
     NotFound,
     parse_size_string,
 )
+from getit.registry import ExtractorRegistry
 from getit.utils.pacer import Pacer
 
 if TYPE_CHECKING:
@@ -24,6 +25,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+@ExtractorRegistry.register
 class MediaFireExtractor(BaseExtractor):
     SUPPORTED_DOMAINS: ClassVar[tuple[str, ...]] = ("mediafire.com",)
     EXTRACTOR_NAME: ClassVar[str] = "mediafire"
@@ -87,7 +89,7 @@ class MediaFireExtractor(BaseExtractor):
 
             if self._pacer.detect_flood_ip_lock(text):
                 await self._pacer.handle_flood_ip_lock()
-                raise ExtractorError("IP locked due to flood detection, retry later")
+                raise ExtractorError("Flood detection triggered, retrying")
 
             download_btn = soup.find("a", {"id": "downloadButton"})
             if download_btn:
@@ -189,7 +191,15 @@ class MediaFireExtractor(BaseExtractor):
                     ]
 
                 raise NotFound(f"Could not extract download link from {url}")
-            except (ExtractorError, NotFound):
+            except NotFound:
+                raise
+            except ExtractorError as e:
+                if "Flood detection" in str(e) and attempt < max_retries:
+                    await self._pacer.sleep(attempt)
+                    logger.info(
+                        f"Retrying MediaFire extraction after flood detection (attempt {attempt + 1}/{max_retries})"
+                    )
+                    continue
                 raise
             except Exception as e:
                 if attempt == max_retries:

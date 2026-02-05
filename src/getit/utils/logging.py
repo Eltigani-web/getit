@@ -22,8 +22,8 @@ import uuid
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
-from datetime import datetime
-from enum import Enum
+from datetime import UTC, datetime
+from enum import StrEnum
 from typing import TYPE_CHECKING, Any, ClassVar
 
 if TYPE_CHECKING:
@@ -33,7 +33,7 @@ _run_id: ContextVar[str | None] = ContextVar("run_id", default=None)
 _download_id: ContextVar[str | None] = ContextVar("download_id", default=None)
 
 
-class LogLevel(str, Enum):
+class LogLevel(StrEnum):
     """Logging level options."""
 
     DEBUG = "DEBUG"
@@ -43,7 +43,7 @@ class LogLevel(str, Enum):
     CRITICAL = "CRITICAL"
 
 
-class LogFormat(str, Enum):
+class LogFormat(StrEnum):
     """Log format options."""
 
     JSON = "json"
@@ -120,7 +120,7 @@ class JSONFormatter(logging.Formatter):
 
     def format(self, record: logging.LogRecord) -> str:
         log_entry: dict[str, Any] = {
-            "timestamp": datetime.fromtimestamp(record.created).isoformat(),
+            "timestamp": datetime.fromtimestamp(record.created, tz=UTC).isoformat(),
             "level": record.levelname,
             "logger": record.name,
             "message": SecretRedactor.redact(record.getMessage()),
@@ -155,6 +155,8 @@ class JSONFormatter(logging.Formatter):
                 "stack_info",
                 "thread",
                 "threadName",
+                "run_id",
+                "download_id",
             }:
                 log_entry[key] = value
 
@@ -221,8 +223,8 @@ class AsyncSafeLogHandler(logging.Handler):
 
     def emit(self, record: logging.LogRecord) -> None:
         """Emit a log record, capturing context at emit time."""
-        record.run_id = _run_id.get()
-        record.download_id = _download_id.get()
+        record.__dict__["run_id"] = _run_id.get()
+        record.__dict__["download_id"] = _download_id.get()
         if self.queue_handler:
             self.queue_handler.emit(record)
 
@@ -284,11 +286,22 @@ def setup_logging(config: LogConfig | None = None) -> None:
 
 def shutdown_logging() -> None:
     """Shutdown logging and stop the queue listener."""
-    global _async_handler
+    global _logger, _async_handler
 
     if _async_handler:
         _async_handler.stop_listener()
+
+        # Remove handler from both loggers to prevent accumulation across setup/shutdown cycles
+        if _logger and _async_handler in _logger.handlers:
+            _logger.removeHandler(_async_handler)
+
+        root_logger = logging.getLogger()
+        if _async_handler in root_logger.handlers:
+            root_logger.removeHandler(_async_handler)
+
         _async_handler = None
+
+    _logger = None
 
 
 @contextmanager
