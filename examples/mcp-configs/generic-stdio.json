@@ -1,0 +1,7 @@
+{
+  "name": "getit",
+  "transport": "stdio",
+  "command": "getit-mcp",
+  "args": [],
+  "env": {}
+}

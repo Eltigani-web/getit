@@ -135,7 +135,17 @@ GetIt isn't just a tool for humans; it's built for agents. It ships with a **Mod
 **Why this matters:**
 Instead of copying links and running commands yourself, you can simply tell your AI: *"Download all the research papers from this list,"* and it will handle the rest—authenticating, queuing, and verifying files automatically.
 
-**Run the server:**
+**Connect your AI:**
+
+Select your client to get the instant configuration:
+
+- 🟣 **[Claude Desktop](examples/mcp-configs/claude-desktop.json)**
+- ⚪ **[Cursor](examples/mcp-configs/cursor.json)**
+- 🌊 **[Windsurf](examples/mcp-configs/windsurf.json)**
+
+*For manual setup or other clients, see the [Full MCP Guide](docs/MCP.md).*
+
+**Manual run (optional):**
 ```bash
 getit-mcp
 # or
