@@ -83,10 +83,10 @@ class TestDownloadServiceDownload:
     """Tests for DownloadService.download()."""
 
     @pytest.mark.asyncio
-    async def test_download_creates_task(self, service, event_bus, task_registry):
+    async def test_download_creates_task(self, service, event_bus, task_registry, temp_dir):
         """Should create task before extraction."""
         url = "https://example.com/file"
-        output_dir = Path("/tmp/downloads")
+        output_dir = temp_dir / "downloads"
 
         with patch.object(
             service._manager, "download_url", new_callable=AsyncMock
@@ -108,10 +108,10 @@ class TestDownloadServiceDownload:
             assert task.url == url
 
     @pytest.mark.asyncio
-    async def test_download_updates_status_extracting(self, service, task_registry):
+    async def test_download_updates_status_extracting(self, service, task_registry, temp_dir):
         """Should update task status to EXTRACTING during extraction."""
         url = "https://example.com/file"
-        output_dir = Path("/tmp/downloads")
+        output_dir = temp_dir / "downloads"
 
         with patch.object(
             service._manager, "download_url", new_callable=AsyncMock

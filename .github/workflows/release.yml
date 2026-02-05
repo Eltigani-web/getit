@@ -137,6 +137,29 @@ jobs:
           VERSION="${{ needs.pypi-publish.outputs.version }}"
           SHA256="${{ needs.pypi-publish.outputs.wheel_sha256 }}"
 
+          WHEEL_URL=$(python - <<'PY'
+import json
+import os
+import sys
+import urllib.request
+
+version = os.environ["VERSION"]
+filename = f"getit_cli-{version}-py3-none-any.whl"
+url = f"https://pypi.org/pypi/getit-cli/{version}/json"
+
+with urllib.request.urlopen(url) as response:
+    payload = json.load(response)
+
+for file_data in payload.get("urls", []):
+    if file_data.get("filename") == filename:
+        print(file_data.get("url"))
+        break
+else:
+    print(f"Wheel {filename} not found in PyPI metadata", file=sys.stderr)
+    sys.exit(1)
+PY
+          )
+
           FORMULA_FILE=".homebrew-tap/Formula/getit.rb"
 
           if [ -f "$FORMULA_FILE" ]; then
@@ -145,7 +168,7 @@ jobs:
             sed -i "s|{{SHA256}}|${SHA256}|g" "$FORMULA_FILE"
             
             # Replace existing version line (url with actual version)
-            sed -i "s|url \"https://files.pythonhosted.org/packages/.*/getit_cli-[0-9.]*-py3-none-any.whl\"|url \"https://files.pythonhosted.org/packages/...placeholder.../getit_cli-${VERSION}-py3-none-any.whl\"|g" "$FORMULA_FILE"
+            sed -i "s|url \"https://files.pythonhosted.org/packages/.*/getit_cli-[0-9.]*-py3-none-any.whl\"|url \"${WHEEL_URL}\"|g" "$FORMULA_FILE"
             
             # Replace existing sha256 line
             sed -i "s|sha256 \"[a-f0-9]\{64\}\"|sha256 \"${SHA256}\"|g" "$FORMULA_FILE"

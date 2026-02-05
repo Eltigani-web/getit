@@ -10,6 +10,22 @@ from getit.service import DownloadService
 from getit.tasks import TaskRegistry
 
 
+@pytest.fixture(autouse=True)
+def reset_mcp_state():
+    import getit.mcp.server as server_module
+
+    original_context = server_module._context
+    original_extractors = ExtractorRegistry._extractors.copy()
+
+    server_module._context = None
+
+    yield
+
+    server_module._context = original_context
+    ExtractorRegistry._extractors.clear()
+    ExtractorRegistry._extractors.update(original_extractors)
+
+
 class TestCreateServer:
     def test_returns_fastmcp_and_context(self) -> None:
         server, ctx = create_server()

@@ -104,6 +104,7 @@ class DownloadService:
                 )
 
     def _handle_progress(self, task_id: str, dl_task: DownloadTask) -> None:
+        status_value = dl_task.progress.status.name
         progress_data = {
             "percentage": dl_task.progress.percentage,
             "downloaded": float(dl_task.progress.downloaded),
@@ -113,7 +114,7 @@ class DownloadService:
             "file_task_id": dl_task.task_id,
             "filename": dl_task.file_info.filename,
             "url": dl_task.file_info.url,
-            "status": dl_task.progress.status,
+            "status": status_value,
             "error": dl_task.progress.error,
         }
 

@@ -115,6 +115,10 @@ class TestTaskRegistry:
 
     async def test_connect_sets_permissions(self, temp_db_path: Path) -> None:
         """Should set restrictive permissions on database file."""
+        import sys
+
+        if sys.platform.startswith("win"):
+            pytest.skip("Windows does not support POSIX file permissions")
         reg = TaskRegistry(temp_db_path)
         await reg.connect()
         await reg.close()

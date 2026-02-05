@@ -19,6 +19,7 @@ from rich.progress import (
 )
 from rich.table import Table
 
+import getit.extractors  # noqa: F401
 from getit import __version__
 from getit.config import get_settings
 from getit.events import DOWNLOAD_COMPLETE, DOWNLOAD_ERROR, DOWNLOAD_PROGRESS, EventBus
