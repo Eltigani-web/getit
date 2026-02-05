@@ -23,7 +23,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from enum import Enum
+from enum import StrEnum
 from typing import TYPE_CHECKING, Any, ClassVar
 
 if TYPE_CHECKING:
@@ -33,7 +33,7 @@ _run_id: ContextVar[str | None] = ContextVar("run_id", default=None)
 _download_id: ContextVar[str | None] = ContextVar("download_id", default=None)
 
 
-class LogLevel(str, Enum):
+class LogLevel(StrEnum):
     """Logging level options."""
 
     DEBUG = "DEBUG"
@@ -43,7 +43,7 @@ class LogLevel(str, Enum):
     CRITICAL = "CRITICAL"
 
 
-class LogFormat(str, Enum):
+class LogFormat(StrEnum):
     """Log format options."""
 
     JSON = "json"
