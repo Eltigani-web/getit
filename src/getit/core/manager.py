@@ -98,7 +98,6 @@ class DownloadManager:
             return
         # Import extractors module to trigger @ExtractorRegistry.register decorators
         import getit.extractors  # noqa: F401
-
         from getit.registry import ExtractorRegistry
 
         registry = self._registry or ExtractorRegistry

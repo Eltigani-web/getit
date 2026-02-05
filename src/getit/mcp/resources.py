@@ -11,6 +11,7 @@ import logging
 from typing import Any
 
 from mcp.server.session import ServerSession
+from pydantic.networks import AnyUrl
 
 from getit.events import DOWNLOAD_COMPLETE, DOWNLOAD_ERROR, DOWNLOAD_PROGRESS
 from getit.mcp.server import get_context, mcp
@@ -51,9 +52,10 @@ async def _on_download_event(data: Any) -> None:
         return
 
     # Notify all subscribed sessions
+    resource_uri = AnyUrl(ACTIVE_DOWNLOADS_URI)
     for session in list(_subscribed_sessions):
         try:
-            await session.send_resource_updated(ACTIVE_DOWNLOADS_URI)
+            await session.send_resource_updated(resource_uri)
         except Exception:
             logger.exception(
                 "Failed to notify session of resource update",

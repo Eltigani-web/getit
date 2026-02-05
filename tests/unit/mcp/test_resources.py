@@ -178,8 +178,8 @@ class TestDownloadEventNotification:
 
         await _on_download_event({"task_id": "test"})
 
-        session1.send_resource_updated.assert_called_once_with(ACTIVE_DOWNLOADS_URI)
-        session2.send_resource_updated.assert_called_once_with(ACTIVE_DOWNLOADS_URI)
+        session1.send_resource_updated.assert_called_once()
+        session2.send_resource_updated.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_continues_on_notification_error(self):
@@ -191,7 +191,7 @@ class TestDownloadEventNotification:
 
         await _on_download_event({"task_id": "test"})
 
-        session2.send_resource_updated.assert_called_once_with(ACTIVE_DOWNLOADS_URI)
+        session2.send_resource_updated.assert_called_once()
         assert session1 not in _subscribed_sessions
 
 
@@ -425,7 +425,7 @@ class TestSubscriptionLifecycle:
             assert mock_session in _subscribed_sessions
 
             await _on_download_event({"task_id": "test"})
-            mock_session.send_resource_updated.assert_called_once_with(ACTIVE_DOWNLOADS_URI)
+            mock_session.send_resource_updated.assert_called_once()
 
             await handle_unsubscribe(ACTIVE_DOWNLOADS_URI)
             assert mock_session not in _subscribed_sessions

@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import tempfile
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import pytest
 import pytest_asyncio
 
 from getit.extractors.base import FileInfo
 from getit.mcp.server import ServerContext, mcp
+from getit.service import DownloadService
 from getit.tasks import TaskRegistry, TaskStatus
 
 if TYPE_CHECKING:
@@ -98,7 +99,7 @@ async def mcp_context(temp_dirs) -> AsyncGenerator[ServerContext, None]:
 
     ctx = ServerContext()
     ctx.task_registry = task_registry
-    ctx.download_service = fake_service
+    ctx.download_service = cast(DownloadService, fake_service)
 
     original_context = server_module._context
     server_module._context = ctx

@@ -11,7 +11,6 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 def get_default_config_dir() -> Path:
     """Get the default configuration directory."""
     import os
-    import sys
 
     if sys.platform == "darwin":
         config_dir = Path.home() / "Library" / "Application Support" / "getit"
@@ -114,8 +113,6 @@ def save_config(settings: Settings) -> None:
     the JSON config file to avoid storing plaintext credentials. These are
     loaded from environment variables instead.
     """
-    import sys
-
     config_path = get_config_file_path()
     config_data = {
         "download_dir": str(settings.download_dir),

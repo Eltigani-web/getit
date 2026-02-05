@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
+from typing import Any
 
 import aiosqlite
 
@@ -35,7 +36,7 @@ class TaskInfo:
     url: str
     output_dir: Path
     status: TaskStatus
-    progress: dict[str, float] = field(default_factory=dict)
+    progress: dict[str, Any] = field(default_factory=dict)
     error: str | None = None
     created_at: datetime = field(default_factory=datetime.now)
     updated_at: datetime = field(default_factory=datetime.now)
@@ -166,15 +167,15 @@ class TaskRegistry:
         self,
         task_id: str,
         status: TaskStatus | None = None,
-        progress: dict[str, float] | None = None,
+        progress: dict[str, Any] | None = None,
         error: str | None | object = _UNSET,
     ) -> None:
         if not self._db:
             logger.warning("update_task called but database not connected")
             return
 
-        updates = []
-        values = []
+        updates: list[str] = []
+        values: list[Any] = []
 
         if status is not None:
             updates.append("status = ?")
@@ -231,7 +232,7 @@ class TaskRegistry:
 
     def _row_to_task(self, row: tuple) -> TaskInfo:
         progress_data = row[4]
-        progress: dict[str, float] = {}
+        progress: dict[str, Any] = {}
         if progress_data:
             progress = json.loads(progress_data)
         return TaskInfo(

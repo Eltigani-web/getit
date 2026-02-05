@@ -6,7 +6,7 @@ from collections.abc import Generator
 
 import pytest
 
-from getit.extractors.base import BaseExtractor, FileInfo
+from getit.extractors.base import BaseExtractor
 from getit.registry import ExtractorRegistry, RegistrationError
 
 

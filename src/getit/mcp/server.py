@@ -6,22 +6,19 @@ Provides MCP tools, resources, and prompts for download management via stdio tra
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
 
 from mcp.server.fastmcp import FastMCP
 
-from getit.config import get_settings
-from getit.events import EventBus
-from getit.registry import ExtractorRegistry
-from getit.service import DownloadService
-from getit.tasks import TaskRegistry
-
-# Import extractors to trigger registration
 import getit.extractors.gofile  # noqa: F401
 import getit.extractors.mediafire  # noqa: F401
 import getit.extractors.mega  # noqa: F401
 import getit.extractors.onefichier  # noqa: F401
 import getit.extractors.pixeldrain  # noqa: F401
+from getit.config import get_settings
+from getit.events import EventBus
+from getit.registry import ExtractorRegistry
+from getit.service import DownloadService
+from getit.tasks import TaskRegistry
 
 
 @dataclass
@@ -69,10 +66,11 @@ def main() -> None:
     """Entry point for running the MCP server with stdio transport."""
     create_server()
 
+    import getit.mcp.prompts  # noqa: F401
+    import getit.mcp.resources  # noqa: F401
+
     # Import modules with MCP decorators to register tools, resources, and prompts
     import getit.mcp.tools  # noqa: F401
-    import getit.mcp.resources  # noqa: F401
-    import getit.mcp.prompts  # noqa: F401
 
     mcp.run(transport="stdio")
 

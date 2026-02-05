@@ -20,12 +20,15 @@ logger = get_logger(__name__)
 class DownloadService:
     def __init__(
         self,
-        registry: ExtractorRegistry,
+        registry: ExtractorRegistry | type[ExtractorRegistry],
         event_bus: EventBus,
         task_registry: TaskRegistry,
         settings: Settings | None = None,
     ):
-        self._registry = registry
+        if isinstance(registry, type):
+            self._registry = registry()
+        else:
+            self._registry = registry
         self._event_bus = event_bus
         self._task_registry = task_registry
         self._settings = settings
@@ -66,7 +69,8 @@ class DownloadService:
         password: str | None,
     ) -> None:
         try:
-            results = await self._manager.download_url(
+            manager = self._require_manager()
+            results = await manager.download_url(
                 url, password, output_dir, lambda t: self._handle_progress(task_id, t)
             )
             await self._finalize_download(task_id, results)
@@ -132,7 +136,8 @@ class DownloadService:
 
     async def list_files(self, url: str, password: str | None = None) -> list[FileInfo]:
         self._ensure_started()
-        return await self._manager.extract_files(url, password)
+        manager = self._require_manager()
+        return await manager.extract_files(url, password)
 
     async def get_status(self, task_id: str) -> TaskInfo | None:
         return await self._task_registry.get_task(task_id)
@@ -157,3 +162,8 @@ class DownloadService:
     def _ensure_started(self) -> None:
         if not self._manager:
             raise RuntimeError("Service not started")
+
+    def _require_manager(self) -> DownloadManager:
+        self._ensure_started()
+        assert self._manager is not None
+        return self._manager

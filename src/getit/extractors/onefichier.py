@@ -240,3 +240,5 @@ class OneFichierExtractor(BaseExtractor):
 
                 logger.info(f"Retrying 1Fichier extraction (attempt {attempt + 1}/{max_retries})")
                 await self._pacer.sleep(attempt)
+
+        raise ExtractorError("Failed to extract 1Fichier file list")
